@@ -16,6 +16,8 @@ from backend.services.grainchain_service import GrainchainService
 from backend.services.web_eval_service import WebEvalService
 from backend.services.gemini_service import GeminiService
 from backend.services.deployment_service import DeploymentService
+from backend.services.codegen_service import codegen_service
+from backend.services.graph_sitter_service import GraphSitterService
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +79,13 @@ class ValidationPipeline:
         self.web_eval = WebEvalService()
         self.gemini = GeminiService()
         self.deployment = DeploymentService()
+        self.graph_sitter = GraphSitterService()
         
         # Initialize validation steps
         self.steps = [
-            ValidationStep("snapshot_creation", "Create sandbox environment with grainchain + web-eval-agent"),
+            ValidationStep("snapshot_creation", "Create sandbox environment with grainchain + web-eval-agent + graph-sitter"),
             ValidationStep("code_clone", "Clone PR codebase to sandbox environment"),
+            ValidationStep("code_analysis", "Analyze code quality using graph-sitter"),
             ValidationStep("deployment", "Execute setup commands and deploy application"),
             ValidationStep("deployment_validation", "Validate deployment using Gemini API"),
             ValidationStep("ui_testing", "Run comprehensive UI tests with web-eval-agent"),
@@ -161,6 +165,8 @@ class ValidationPipeline:
                 return await self._create_snapshot(step)
             elif step.name == "code_clone":
                 return await self._clone_code(step)
+            elif step.name == "code_analysis":
+                return await self._analyze_code_quality(step)
             elif step.name == "deployment":
                 return await self._deploy_application(step)
             elif step.name == "deployment_validation":
@@ -249,8 +255,68 @@ class ValidationPipeline:
             step.complete(False, str(e))
             return False
 
+    async def _analyze_code_quality(self, step: ValidationStep) -> bool:
+        """Step 3: Analyze code quality using graph-sitter"""
+        step.add_log("Starting code quality analysis with graph-sitter...")
+        
+        try:
+            if not self.graph_sitter.is_enabled():
+                step.add_log("Graph-sitter is disabled, skipping code analysis")
+                step.complete(True)
+                return True
+            
+            # Analyze codebase
+            project_dir = os.path.join(self.workspace_dir, "project")
+            analysis_result = await self.graph_sitter.analyze_codebase(
+                workspace_dir=project_dir,
+                project_id=self.project_id
+            )
+            
+            if not analysis_result["success"]:
+                step.complete(False, f"Code analysis failed: {analysis_result['error']}")
+                return False
+            
+            analysis = analysis_result["analysis"]
+            
+            # Log analysis results
+            step.add_log(f"Analyzed {analysis['files_analyzed']} files")
+            step.add_log(f"Total lines of code: {analysis['total_lines']}")
+            step.add_log(f"Languages found: {', '.join(analysis['languages'])}")
+            step.add_log(f"Code quality score: {analysis['quality_score']}/100")
+            
+            # Log issues found
+            if analysis['issues']:
+                step.add_log(f"Found {len(analysis['issues'])} code quality issues:")
+                for issue in analysis['issues'][:5]:  # Show first 5 issues
+                    step.add_log(f"  - {issue['severity'].upper()}: {issue['message']} ({issue['file']}:{issue['line']})")
+                
+                if len(analysis['issues']) > 5:
+                    step.add_log(f"  ... and {len(analysis['issues']) - 5} more issues")
+            else:
+                step.add_log("No code quality issues found")
+            
+            # Log recommendations
+            if analysis['recommendations']:
+                step.add_log("Recommendations:")
+                for rec in analysis['recommendations']:
+                    step.add_log(f"  - {rec}")
+            
+            # Determine if analysis passes quality threshold
+            quality_threshold = 70  # Configurable threshold
+            if analysis['quality_score'] < quality_threshold:
+                step.complete(False, f"Code quality score ({analysis['quality_score']}) below threshold ({quality_threshold})")
+                return False
+            
+            step.add_log("Code quality analysis passed")
+            step.complete(True)
+            return True
+            
+        except Exception as e:
+            step.complete(False, str(e))
+            return False
+
     async def _deploy_application(self, step: ValidationStep) -> bool:
-        """Step 3: Execute setup commands and deploy application"""
+        """Step 4: Execute setup commands and deploy application"""
         step.add_log("Executing setup commands...")
         
         try:
@@ -290,7 +356,7 @@ class ValidationPipeline:
             return False
 
     async def _validate_deployment(self, step: ValidationStep) -> bool:
-        """Step 4: Validate deployment using Gemini API"""
+        """Step 5: Validate deployment using Gemini API"""
         step.add_log("Validating deployment with Gemini API...")
         
         try:
@@ -319,7 +385,7 @@ class ValidationPipeline:
             return False
 
     async def _run_ui_tests(self, step: ValidationStep) -> bool:
-        """Step 5: Run comprehensive UI tests with web-eval-agent"""
+        """Step 6: Run comprehensive UI tests with web-eval-agent"""
         step.add_log("Running UI tests with web-eval-agent...")
         
         try:
@@ -346,7 +412,7 @@ class ValidationPipeline:
             return False
 
     async def _auto_merge_pr(self, step: ValidationStep) -> bool:
-        """Step 6: Auto-merge PR if validation passes and enabled"""
+        """Step 7: Auto-merge PR if validation passes and enabled"""
         step.add_log("Checking auto-merge settings...")
         
         try:
