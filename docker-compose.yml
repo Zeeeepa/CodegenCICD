@@ -60,18 +60,19 @@ services:
   # Frontend
   frontend:
     build:
-      context: .
-      dockerfile: frontend/Dockerfile
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "3000:80"
     environment:
-      - REACT_APP_API_URL=http://localhost:8000
-      - REACT_APP_WS_URL=ws://localhost:8000
+      - REACT_APP_API_URL=/api/v1
     depends_on:
       - backend
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # Celery Worker
   celery_worker:
@@ -136,4 +137,3 @@ volumes:
 networks:
   default:
     name: codegencd_network
-

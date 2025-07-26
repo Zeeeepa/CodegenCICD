@@ -136,12 +136,12 @@ async def websocket_stats():
     return connection_manager.get_connection_stats()
 
 
-# Include API routers (will be added in next phase)
-# from backend.routers import projects, agent_runs, configurations, webhooks
-# app.include_router(projects.router, prefix="/api/v1/projects", tags=["projects"])
-# app.include_router(agent_runs.router, prefix="/api/v1/agent-runs", tags=["agent-runs"])
-# app.include_router(configurations.router, prefix="/api/v1/configurations", tags=["configurations"])
-# app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["webhooks"])
+# Include API routers
+from backend.routers import projects, agent_runs, webhooks
+
+app.include_router(projects.router, prefix="/api/v1")
+app.include_router(agent_runs.router, prefix="/api/v1")
+app.include_router(webhooks.router, prefix="/api/v1")
 
 
 if __name__ == "__main__":
@@ -153,4 +153,3 @@ if __name__ == "__main__":
         reload=settings.debug,
         log_level=settings.log_level.lower()
     )
-

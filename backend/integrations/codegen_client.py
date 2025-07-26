@@ -1,8 +1,8 @@
 """
 Codegen API client for agent runs and task management
+Uses the official Codegen SDK pattern for compatibility
 """
 import asyncio
-import httpx
 import structlog
 from typing import Dict, Any, Optional, List, AsyncGenerator
 from backend.config import get_settings
@@ -10,19 +10,38 @@ from backend.config import get_settings
 logger = structlog.get_logger(__name__)
 settings = get_settings()
 
+# Import the official Codegen SDK
+try:
+    from codegen.agents.agent import Agent
+    from codegen.agents.task import Task
+    CODEGEN_SDK_AVAILABLE = True
+except ImportError:
+    logger.warning("Official Codegen SDK not available, using fallback HTTP client")
+    CODEGEN_SDK_AVAILABLE = False
+    import httpx
+
 
 class CodegenClient:
-    """Client for interacting with Codegen API"""
+    """Client for interacting with Codegen API using official SDK"""
     
     def __init__(self):
-        self.base_url = "https://api.codegen.com"
         self.org_id = settings.codegen_org_id
         self.api_token = settings.codegen_api_token
-        self.headers = {
-            "Authorization": f"Bearer {self.api_token}",
-            "Content-Type": "application/json",
-            "User-Agent": "CodegenCICD/1.0.0"
-        }
+        
+        if CODEGEN_SDK_AVAILABLE:
+            # Use official SDK
+            self.agent = Agent(
+                org_id=self.org_id,
+                token=self.api_token
+            )
+        else:
+            # Fallback to HTTP client
+            self.base_url = "https://codegen-sh-rest-api.modal.run"
+            self.headers = {
+                "Authorization": f"Bearer {self.api_token}",
+                "Content-Type": "application/json",
+                "User-Agent": "CodegenCICD/1.0.0"
+            }
     
     async def _make_request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
         """Make HTTP request to Codegen API"""
@@ -52,25 +71,40 @@ class CodegenClient:
     
     async def create_agent_run(self, prompt: str, repository: str = None, 
                               planning_statement: str = None) -> Dict[str, Any]:
-        """Create a new agent run"""
-        payload = {
-            "org_id": self.org_id,
-            "prompt": prompt
-        }
-        
-        if repository:
-            payload["repository"] = repository
-        
+        """Create a new agent run using official SDK"""
+        # Prepare the full prompt
+        full_prompt = prompt
         if planning_statement:
-            # Prepend planning statement to the prompt
-            payload["prompt"] = f"{planning_statement}\n\n{prompt}"
+            full_prompt = f"{planning_statement}\n\n{prompt}"
         
-        logger.info("Creating agent run", prompt_length=len(prompt), repository=repository)
+        logger.info("Creating agent run", prompt_length=len(full_prompt), repository=repository)
         
         try:
-            response = await self._make_request("POST", "/v1/agent-runs", json=payload)
-            logger.info("Agent run created", run_id=response.get("id"))
-            return response
+            if CODEGEN_SDK_AVAILABLE:
+                # Use official SDK
+                task = self.agent.run(prompt=full_prompt)
+                
+                # Convert Task object to dict for compatibility
+                return {
+                    "id": getattr(task, 'id', None),
+                    "status": task.status,
+                    "prompt": full_prompt,
+                    "repository": repository,
+                    "task_object": task  # Store the actual task object for later use
+                }
+            else:
+                # Fallback to HTTP client
+                payload = {
+                    "org_id": self.org_id,
+                    "prompt": full_prompt
+                }
+                if repository:
+                    payload["repository"] = repository
+                
+                response = await self._make_request("POST", "/v1/agent-runs", json=payload)
+                logger.info("Agent run created", run_id=response.get("id"))
+                return response
+                
         except Exception as e:
             logger.error("Failed to create agent run", error=str(e))
             raise
@@ -238,4 +272,3 @@ class CodegenClient:
         except Exception as e:
             logger.error("Failed to list agent runs", error=str(e))
             return []
-
