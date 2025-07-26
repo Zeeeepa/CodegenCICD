@@ -1,35 +1,288 @@
+# CodegenCICD Dashboard
 
-1. OPEN UI dashboard 
-2. HEADERS PROJECT DROPDOWN LIST -> Select project (Appears in dashboard as project card - at this moment the project is set with webhook URL from cloudflare domain url from .env (When project gets PR - it sends webhook notification to the program)
-project card has button "Run" -> when pressing allows adding "Target text / goal" and confirm button sends request with project as context prompt text <Project='selectedprojectname'> + text from  "Target text / goal" -> project card shows progression from codege api endpoint logging. when response is retrieved it shows response - 1 out of 3 types. (regular / plan / PR) - Regular has button "continue" to add text and send as resume endpoint.  plan has button [confirm / modify] - if confirm, sends (Confirm prompt - could be set by default <"Proceed">, if modify also opets text input field and confirm button. If PR is created it should show notification of project's card github square with number of PR - . it should be possible to press on it - prompts validation flow:
+🚀 **AI-Powered CI/CD Dashboard with Codegen Integration**
 
-VALIDATION FLOW. CREATES SNAPSHOT of instance with graph_sitter + web-eval-agent pre deployed with .env variables required for them. 
-step 2- git clones PR codebase. 
-step 3- run deployment commands set in project's card's deployment settings tab.
-step 4-validate that deployment was successfull using retrieved context + gemini api - if failed -> sends error logs + context to codegen api agent with error context  as continuation on the project's card (As if pressing "continue" on project's card- but automatically  + prompt asking to update that same PR with codefilechanges to resolve) if error loops further until suceeds or if alot of fails cancels that codegen api run session but saves all error ocntexts and sends new identical as initial user's request + adds all error conexts . when successful -> runs web-eval-agent - to test all flows, all components - if errors - again sends as continue button message to that same agent run instance with error context asking to update PR. When PR on the project selected on the card is updated it should trigger re-deployment commands to be runned -> Then again web-eval-agent runs until validates all working functionalities components flows. After all is verified as working [propose notification with complete task allowing user to select [merge to main] or [open github]. project's card should have checkbox [Auto-merge validated PR]. Create NEW PROPERLY UPGRADED README.md with proper flow of functions and usage of program - showing in both elements and functions used and projects which are responsible for these functions.
+A comprehensive dashboard system that integrates with the Codegen API to provide automated code generation, validation, and deployment workflows with real-time monitoring and GitHub integration.
 
-Please analyze PR you have created - update it with functionality - each project card should have "Agent Run" button. This button opens text dialog which allows user to add text "Target" and then to press confirm. initially it should send this text via codegen api (current agent run implementation) with pre-prompt explicitly and in high detail (this prompt should be setupable via settings dialog's new tab - Planning Statement (only text that is sent to codegen together with user's added text from "Agent Run" text dialog.. each project's pinned to dashboard card should have 1-checkboxx checkbox -Auto Confirm Proposed Plan [ X ]. 2- settings gear icon with idalog. the dialog of project card should have tab for repository rules when pressing opens tab with "Specify any additional rules you want the agent to follow for this repository." and has text input. if text is added should identify that by changing colours in the card itself.
+## 🏗️ Architecture Overview
 
-3rd project card feature Setup Commands Specify the commands to run when setting up the sandbox environment. example input : """ cd backend python api.py cd .. cd frontend npm install npm run dev """" and with buttons "Run", "Save", "Branch (dropdown branch names to select branch on which to run setup commands) when running shows if failed, or errors with logs or sucess if all works. further project card feature - Secrets button opens dialog which allows adding "+add secret" when pressing gives 2 text input fields: [ENV_VAR_NAME] + [VALUE] or it has "paste in text". simply opens all env variables as simple text file. Example input CODEGEN_ORG_ID=323 CODEGEN_TOKEN=sk-ce027fa7-3c8d-4beb-8c86-ed8ae982ac99
+The CodegenCICD Dashboard is built with a modern, scalable architecture:
 
-All this information should stay persistant between openings, runs, restarts
+### Core Components
 
-.env.example
-#Codegen agent api [Codegen]
-CODEGEN_ORG_ID=
-CODEGEN_API_TOKEN=
+- **Backend**: FastAPI with async/await support
+- **Frontend**: React with Material-UI components
+- **Database**: PostgreSQL with SQLAlchemy ORM
+- **Cache/Queue**: Redis for real-time updates and background tasks
+- **WebSocket**: Real-time communication for live updates
+- **Validation Stack**: Integration with grainchain, graph-sitter, and web-eval-agent
 
-#Github usage [grainchain, codegenApp]
-GITHUB_TOKEN=
+### External Integrations
 
-# use  [web-eval-agent]
-GEMINI_API_KEY=
+- **Codegen API**: AI-powered code generation and agent runs
+- **GitHub API**: Repository management, PR creation, and webhooks
+- **Cloudflare Workers**: Webhook gateway for GitHub events
+- **Gemini API**: AI validation and error analysis
 
+## 🎯 Key Features
 
-# online accessability [cloudflare]
-CLOUDFLARE_API_KEY=
-CLOUDFLARE_ACCOUNT_ID=
+### 📊 Project Dashboard
+- **Project Cards**: Visual representation of GitHub repositories
+- **Real-time Status**: Live updates on agent runs and validation progress
+- **Project Selection**: Dropdown to switch between different repositories
+
+### 🤖 Agent Run System
+- **Target Input**: Natural language goals for AI agents
+- **Planning Statements**: Customizable prompts for agent context
+- **Auto-confirm Plans**: Optional automatic plan approval
+- **Progress Tracking**: Real-time monitoring of agent execution
+
+### 🔄 Validation Pipeline
+1. **Snapshot Creation**: Using grainchain for sandboxed environments
+2. **Code Cloning**: Automatic PR codebase retrieval
+3. **Deployment**: Configurable setup commands execution
+4. **Validation**: Gemini API-powered deployment verification
+5. **Testing**: web-eval-agent for comprehensive UI/UX testing
+6. **Auto-merge**: Validated PRs can be automatically merged
+
+### ⚙️ Advanced Configuration
+- **Repository Rules**: Custom rules for agent behavior
+- **Setup Commands**: Configurable deployment scripts
+- **Secrets Management**: Encrypted environment variables
+- **Branch Selection**: Target specific branches for operations
+
+### 🔗 GitHub Integration
+- **Webhook Support**: Real-time PR notifications
+- **Auto-merge**: Validated PRs can be merged automatically
+- **Branch Management**: Support for multiple branches
+- **PR Tracking**: Visual indicators for created PRs
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Docker and Docker Compose
+- Node.js 18+ (for local development)
+- Python 3.11+ (for local development)
+
+### Environment Setup
+
+1. **Clone the repository**:
+```bash
+git clone <repository-url>
+cd CodegenCICD
+```
+
+2. **Create environment file**:
+```bash
+cp .env.example .env
+```
+
+3. **Configure environment variables** (see Configuration section below)
+
+4. **Start with Docker Compose**:
+```bash
+docker-compose up -d
+```
+
+5. **Access the application**:
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000
+- API Documentation: http://localhost:8000/docs
+
+## 🔧 Configuration
+
+### Required Environment Variables
+
+```bash
+# Codegen API Configuration
+CODEGEN_ORG_ID=323
+CODEGEN_API_TOKEN=your_codegen_api_token_here
+
+# GitHub Integration
+GITHUB_TOKEN=your_github_token_here
+
+# AI Services
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Cloudflare Integration
+CLOUDFLARE_API_KEY=your_cloudflare_api_key_here
+CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id_here
 CLOUDFLARE_WORKER_NAME=webhook-gateway
 CLOUDFLARE_WORKER_URL=https://webhook-gateway.pixeliumperfecto.workers.dev
 
-#grainchain [local sandboxing]
+# Database Configuration
+DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/codegencd
+REDIS_URL=redis://localhost:6379
+
+# Security
+SECRET_ENCRYPTION_KEY=<generate-with-fernet>
+```
+
+## 📖 Usage Guide
+
+### 1. Project Setup
+
+1. **Add a Project**:
+   - Click "Add Project" in the dashboard
+   - Enter GitHub repository details
+   - Configure initial settings
+
+2. **Configure Project Settings**:
+   - **Repository Rules**: Custom instructions for the AI agent
+   - **Setup Commands**: Deployment and build scripts
+   - **Secrets**: Environment variables for the project
+   - **Planning Statement**: Default prompt context
+
+### 2. Running Agent Tasks
+
+1. **Start an Agent Run**:
+   - Click "Agent Run" on a project card
+   - Enter your target/goal in natural language
+   - Click "Confirm" to start the process
+
+2. **Monitor Progress**:
+   - Real-time updates appear on the project card
+   - WebSocket connection provides live status updates
+   - View detailed logs in the agent run details
+
+### 3. Validation Flow
+
+When a PR is created by an agent:
+
+1. **Automatic Validation Trigger**:
+   - System creates a snapshot environment
+   - Clones the PR codebase
+   - Runs configured setup commands
+
+2. **Deployment Validation**:
+   - Gemini API validates deployment success
+   - Errors trigger automatic fixes via agent continuation
+
+3. **UI/UX Testing**:
+   - web-eval-agent tests all application flows
+   - Comprehensive component and functionality validation
+
+4. **Auto-merge** (if enabled):
+   - Successfully validated PRs are automatically merged
+   - Notification sent to user with completion status
+
+## 🛠️ Development
+
+### Local Development Setup
+
+1. **Backend Development**:
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+2. **Frontend Development**:
+```bash
+cd frontend
+npm install
+npm start
+```
+
+3. **Database Setup**:
+```bash
+# Start PostgreSQL and Redis
+docker-compose up postgres redis -d
+
+# Run database migrations
+cd backend
+alembic upgrade head
+```
+
+### Project Structure
+
+```
+CodegenCICD/
+├── backend/                 # FastAPI backend
+│   ├── main.py             # Application entry point
+│   ├── database.py         # Database configuration
+│   ├── models/             # SQLAlchemy models
+│   ├── routers/            # API route handlers
+│   ├── services/           # Business logic services
+│   ├── websocket/          # WebSocket management
+│   └── integrations/       # External API clients
+├── frontend/               # React frontend
+│   ├── src/
+│   │   ├── components/     # React components
+│   │   ├── services/       # API clients
+│   │   └── hooks/          # Custom React hooks
+│   └── public/
+├── docker-compose.yml      # Docker services configuration
+└── README.md              # This file
+```
+
+## 🔌 API Endpoints
+
+### Projects
+- `GET /api/v1/projects` - List all projects
+- `POST /api/v1/projects` - Create a new project
+- `GET /api/v1/projects/{id}` - Get project details
+- `PUT /api/v1/projects/{id}` - Update project
+- `DELETE /api/v1/projects/{id}` - Delete project
+
+### Agent Runs
+- `GET /api/v1/agent-runs` - List agent runs
+- `POST /api/v1/agent-runs` - Create new agent run
+- `GET /api/v1/agent-runs/{id}` - Get agent run details
+
+### Configuration
+- `GET /api/v1/configurations/secrets` - List project secrets
+- `POST /api/v1/configurations/secrets` - Create new secret
+- `DELETE /api/v1/configurations/secrets/{id}` - Delete secret
+
+### Webhooks
+- `POST /api/v1/webhooks/github` - GitHub webhook handler
+
+## 🔒 Security Features
+
+- **Encrypted Secrets**: All environment variables are encrypted using Fernet
+- **Webhook Verification**: GitHub webhook signatures are validated
+- **Database Security**: Parameterized queries prevent SQL injection
+- **CORS Configuration**: Proper cross-origin resource sharing setup
+
+## 🧪 Testing
+
+```bash
+# Backend tests
+cd backend
+pytest
+
+# Frontend tests
+cd frontend
+npm test
+```
+
+## 📊 Monitoring
+
+- **Health Checks**: `/health` endpoint for service monitoring
+- **Real-time Updates**: WebSocket connections for live status
+- **Logging**: Structured logging with different levels
+- **Error Tracking**: Comprehensive error handling and reporting
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Submit a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🆘 Support
+
+For support and questions:
+- Create an issue in the GitHub repository
+- Check the API documentation at `/docs`
+- Review the logs for debugging information
+
+---
+
+**Built with ❤️ using Codegen AI and modern web technologies**

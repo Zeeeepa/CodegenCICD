@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: codegencd
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and task queues
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/codegencd
+      - REDIS_URL=redis://redis:6379
+      - CODEGEN_ORG_ID=${CODEGEN_ORG_ID}
+      - CODEGEN_API_TOKEN=${CODEGEN_API_TOKEN}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - CLOUDFLARE_API_KEY=${CLOUDFLARE_API_KEY}
+      - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}
+      - CLOUDFLARE_WORKER_NAME=webhook-gateway
+      - CLOUDFLARE_WORKER_URL=https://webhook-gateway.pixeliumperfecto.workers.dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app/backend
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # React Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_WS_URL=ws://localhost:8000
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    depends_on:
+      - backend
+    command: npm start
+
+  # Celery Worker for background tasks
+  celery-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/codegencd
+      - REDIS_URL=redis://redis:6379
+      - CODEGEN_ORG_ID=${CODEGEN_ORG_ID}
+      - CODEGEN_API_TOKEN=${CODEGEN_API_TOKEN}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app/backend
+    command: celery -A backend.tasks.celery_app worker --loglevel=info
+
+volumes:
+  postgres_data:
+  redis_data:
