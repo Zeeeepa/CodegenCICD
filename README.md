@@ -1,8 +1,34 @@
 # CodegenCICD Dashboard
 
-🚀 **AI-Powered CI/CD Dashboard with Codegen Integration**
+🚀 **AI-Powered CI/CD Flow Cycle Project Management System**
 
-A comprehensive dashboard system that integrates with the Codegen API to provide automated code generation, validation, and deployment workflows with real-time monitoring and GitHub integration.
+A comprehensive dashboard for managing AI-powered CI/CD workflows with Codegen Agent API integration. This system allows users to input requirements, start agent runs, view real-time feedback, and track progress until requirements are fulfilled.
+
+![CodegenCICD Dashboard](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)
+![React](https://img.shields.io/badge/React-18.2.0-blue)
+![TypeScript](https://img.shields.io/badge/TypeScript-4.9.5-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-Latest-green)
+![Material-UI](https://img.shields.io/badge/Material--UI-5.14.20-purple)
+
+## 🎯 **Core Features**
+
+### **Complete CI/CD Flow Cycle**
+- **Requirements Input** → **Agent Execution** → **Real-time Feedback** → **Iterative Fulfillment**
+- Interactive project management with GitHub integration
+- Real-time WebSocket updates for live progress tracking
+- Comprehensive validation pipeline with auto-merge capabilities
+
+### **Project Management**
+- 📊 **Project Cards**: Interactive cards with status indicators and Agent Run buttons
+- ⚙️ **Settings Dialogs**: Repository rules, setup commands, and secrets management
+- 🔄 **Auto-merge**: Automatic merging of validated pull requests
+- ✅ **Auto-confirm**: Automatic confirmation of proposed plans
+
+### **Agent Run Management**
+- 🤖 **Agent Run Dialog**: Complete interface for starting and monitoring agent runs
+- 📈 **Progress Tracker**: Real-time execution monitoring with detailed logs
+- 🔄 **Response Handler**: Handles different response types (regular, plan, PR)
+- 💬 **Continue Functionality**: Iterative refinement and additional requirements
 
 ## 🏗️ Architecture Overview
 
