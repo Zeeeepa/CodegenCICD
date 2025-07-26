@@ -14,7 +14,10 @@ import {
   Badge,
   Menu,
   MenuItem,
-  Chip
+  Chip,
+  FormControl,
+  InputLabel,
+  Select
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -38,6 +41,7 @@ const Dashboard: React.FC = () => {
   const [notificationAnchor, setNotificationAnchor] = useState<null | HTMLElement>(null);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
 
   // Load projects on component mount
   useEffect(() => {
@@ -70,14 +74,59 @@ const Dashboard: React.FC = () => {
 
   const unreadNotifications = notifications.filter(n => !n.read);
 
+  // Filter projects based on selection
+  const displayProjects = selectedProjectId === 'all' 
+    ? projects 
+    : projects.filter(p => p.id === selectedProjectId);
+
+  const selectedProject = selectedProjectId !== 'all' 
+    ? projects.find(p => p.id === selectedProjectId) 
+    : null;
+
   return (
     <Box sx={{ flexGrow: 1, minHeight: '100vh', bgcolor: 'background.default' }}>
       {/* App Bar */}
       <AppBar position="static" elevation={1}>
         <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+          <Typography variant="h6" component="div" sx={{ mr: 3 }}>
             CodegenCICD Dashboard
           </Typography>
+          
+          {/* Project Selector */}
+          {projects.length > 0 && (
+            <FormControl variant="outlined" size="small" sx={{ minWidth: 200, mr: 2 }}>
+              <InputLabel sx={{ color: 'white' }}>Select Project</InputLabel>
+              <Select
+                value={selectedProjectId}
+                onChange={(e) => setSelectedProjectId(e.target.value)}
+                label="Select Project"
+                sx={{ 
+                  color: 'white',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: 'rgba(255, 255, 255, 0.23)',
+                  },
+                  '&:hover .MuiOutlinedInput-notchedOutline': {
+                    borderColor: 'rgba(255, 255, 255, 0.5)',
+                  },
+                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                    borderColor: 'white',
+                  },
+                  '& .MuiSvgIcon-root': {
+                    color: 'white',
+                  }
+                }}
+              >
+                <MenuItem value="all">All Projects</MenuItem>
+                {projects.map((project) => (
+                  <MenuItem key={project.id} value={project.id}>
+                    {project.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+
+          <Box sx={{ flexGrow: 1 }} />
           
           {/* WebSocket Connection Status */}
           <Chip
@@ -134,22 +183,25 @@ const Dashboard: React.FC = () => {
         {/* Header */}
         <Box sx={{ mb: 4 }}>
           <Typography variant="h4" component="h1" gutterBottom>
-            Projects
+            {selectedProject ? `Project: ${selectedProject.name}` : 'Projects'}
           </Typography>
           <Typography variant="body1" color="text.secondary">
-            Manage your AI-powered CI/CD projects with real-time agent runs and validation pipelines.
+            {selectedProject 
+              ? `Manage ${selectedProject.name} with AI-powered CI/CD workflows and validation pipelines.`
+              : 'Manage your AI-powered CI/CD projects with real-time agent runs and validation pipelines.'
+            }
           </Typography>
         </Box>
 
         {/* Loading State */}
-        {loading && projects.length === 0 && (
+        {loading && displayProjects.length === 0 && (
           <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
             <CircularProgress />
           </Box>
         )}
 
         {/* Empty State */}
-        {!loading && projects.length === 0 && (
+        {!loading && displayProjects.length === 0 && selectedProjectId === 'all' && (
           <Box
             display="flex"
             flexDirection="column"
@@ -177,10 +229,10 @@ const Dashboard: React.FC = () => {
         )}
 
         {/* Projects Grid */}
-        {projects.length > 0 && (
+        {displayProjects.length > 0 && (
           <Grid container spacing={3}>
-            {projects.map((project: Project) => (
-              <Grid item xs={12} sm={6} md={4} lg={3} key={project.id}>
+            {displayProjects.map((project: Project) => (
+              <Grid item xs={12} sm={6} md={4} lg={selectedProject ? 12 : 3} key={project.id}>
                 <ProjectCard project={project} />
               </Grid>
             ))}
