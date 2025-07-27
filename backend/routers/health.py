@@ -1,500 +1,302 @@
 """
-Health check router for CodegenCICD Dashboard
+Health check endpoints for CodegenCICD Dashboard
+Provides comprehensive system health monitoring
 """
-from fastapi import APIRouter, Depends
-from typing import Dict, Any
+import asyncio
+import time
+from datetime import datetime, timezone
+from typing import Dict, Any, Optional
+
+import aiohttp
+import asyncpg
+import redis.asyncio as redis
+from fastapi import APIRouter, HTTPException, Depends, status
+from pydantic import BaseModel
 import structlog
 
-from backend.config import get_settings
-from backend.database import check_db_health
+from backend.core.settings import get_settings
+from backend.core.database import get_database
 
 logger = structlog.get_logger(__name__)
-settings = get_settings()
-
-router = APIRouter()
+router = APIRouter(prefix="/health", tags=["health"])
 
 
-@router.get("/")
-async def health_check() -> Dict[str, Any]:
-    """Comprehensive health check endpoint"""
-    try:
-        # Check database health
-        db_health = await check_db_health()
-        
-        # Basic health status
-        health_status = {
-            "status": "healthy" if db_health["status"] == "healthy" else "unhealthy",
-            "service": "CodegenCICD Dashboard",
-            "version": settings.version,
-            "environment": settings.environment,
-            "config_tier": settings.config_tier.value,
-            "timestamp": _get_timestamp(),
-            "database": db_health,
-            "features": settings.get_active_features()
-        }
-        
-        # Add service-specific health checks based on enabled features
-        if settings.is_feature_enabled("websocket_updates"):
-            # TODO: Add WebSocket service health check
-            health_status["websocket"] = {
-                "status": "healthy",
-                "active_connections": 0  # Placeholder
-            }
-        
-        if settings.is_feature_enabled("background_tasks"):
-            # TODO: Add Celery health check
-            health_status["background_tasks"] = {
-                "status": "healthy",
-                "active_workers": 0  # Placeholder
-            }
-        
-        if settings.is_feature_enabled("monitoring"):
-            # TODO: Add monitoring service health check
-            health_status["monitoring"] = {
-                "status": "healthy",
-                "metrics_enabled": True
-            }
-        
-        return health_status
-        
-    except Exception as e:
-        logger.error("Health check failed", error=str(e))
-        return {
-            "status": "unhealthy",
-            "service": "CodegenCICD Dashboard",
-            "error": str(e),
-            "timestamp": _get_timestamp()
-        }
+class HealthStatus(BaseModel):
+    """Health check response model"""
+    status: str
+    timestamp: datetime
+    version: str
+    environment: str
+    uptime_seconds: float
+    checks: Dict[str, Any]
 
 
-@router.get("/database")
-async def database_health() -> Dict[str, Any]:
-    """Database-specific health check"""
-    try:
-        db_health = await check_db_health()
-        return {
-            "timestamp": _get_timestamp(),
-            **db_health
-        }
-    except Exception as e:
-        logger.error("Database health check failed", error=str(e))
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": _get_timestamp()
-        }
+class ServiceCheck(BaseModel):
+    """Individual service health check"""
+    status: str  # "healthy", "unhealthy", "degraded"
+    response_time_ms: Optional[float] = None
+    error: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
 
 
-@router.get("/services")
-async def services_health() -> Dict[str, Any]:
-    """Health check for all services"""
-    services_status = {}
+# Application start time for uptime calculation
+_start_time = time.time()
+
+
+async def check_database() -> ServiceCheck:
+    """Check PostgreSQL database connectivity"""
+    start_time = time.time()
     
     try:
-        # Database
-        db_health = await check_db_health()
-        services_status["database"] = db_health
+        settings = get_settings()
         
-        # External services health checks
-        services_status["codegen_api"] = await _check_codegen_api_health()
-        services_status["github_api"] = await _check_github_api_health()
+        # Test database connection
+        conn = await asyncpg.connect(settings.database_url)
         
-        if settings.gemini_api_key:
-            services_status["gemini_api"] = await _check_gemini_api_health()
+        # Simple query to verify database is responsive
+        result = await conn.fetchval("SELECT 1")
+        await conn.close()
         
-        # Validation tools
-        if settings.grainchain_enabled:
-            services_status["grainchain"] = await _check_grainchain_health()
-        
-        if settings.web_eval_enabled:
-            services_status["web_eval_agent"] = await _check_web_eval_health()
-        
-        if settings.graph_sitter_enabled:
-            services_status["graph_sitter"] = await _check_graph_sitter_health()
-        
-        # Overall status
-        all_healthy = all(
-            service.get("status") == "healthy" 
-            for service in services_status.values()
-        )
-        
-        return {
-            "status": "healthy" if all_healthy else "degraded",
-            "timestamp": _get_timestamp(),
-            "services": services_status
-        }
-        
-    except Exception as e:
-        logger.error("Services health check failed", error=str(e))
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": _get_timestamp(),
-            "services": services_status
-        }
-
-
-async def _check_codegen_api_health() -> Dict[str, Any]:
-    """Check Codegen API health"""
-    try:
-        # TODO: Implement actual Codegen API health check
-        return {
-            "status": "healthy",
-            "response_time_ms": 0,
-            "api_key_configured": bool(settings.codegen_api_token)
-        }
-    except Exception as e:
-        return {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-
-
-async def _check_github_api_health() -> Dict[str, Any]:
-    """Check GitHub API health"""
-    try:
-        # TODO: Implement actual GitHub API health check
-        return {
-            "status": "healthy",
-            "response_time_ms": 0,
-            "token_configured": bool(settings.github_token)
-        }
-    except Exception as e:
-        return {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-
-
-async def _check_gemini_api_health() -> Dict[str, Any]:
-    """Check Gemini API health"""
-    try:
-        # TODO: Implement actual Gemini API health check
-        return {
-            "status": "healthy",
-            "response_time_ms": 0,
-            "api_key_configured": bool(settings.gemini_api_key)
-        }
-    except Exception as e:
-        return {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-
-
-async def _check_grainchain_health() -> Dict[str, Any]:
-    """Check grainchain service health with enhanced monitoring"""
-    try:
-        from backend.integrations.grainchain_client import EnhancedGrainchainClient
-        
-        client = EnhancedGrainchainClient()
-        
-        # Perform comprehensive health check
-        health_check_result = await client.perform_health_check()
-        client_health = client.get_health_status()
-        
-        return {
-            "status": "healthy" if health_check_result["service_available"] else "unhealthy",
-            "response_time_ms": int(health_check_result["response_time"] * 1000),
-            "enabled": settings.grainchain_enabled,
-            "service_available": health_check_result["service_available"],
-            "client_health_score": client_health["health_score"],
-            "client_status": client_health["status"],
-            "issues": client_health["issues"],
-            "correlation_id": health_check_result["correlation_id"]
-        }
-    except Exception as e:
-        logger.error("Enhanced grainchain health check failed", error=str(e))
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "enabled": settings.grainchain_enabled
-        }
-
-
-async def _check_web_eval_health() -> Dict[str, Any]:
-    """Check web-eval-agent service health"""
-    try:
-        # TODO: Implement actual web-eval-agent health check
-        return {
-            "status": "healthy",
-            "response_time_ms": 0,
-            "enabled": settings.web_eval_enabled
-        }
-    except Exception as e:
-        return {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-
-
-async def _check_graph_sitter_health() -> Dict[str, Any]:
-    """Check graph-sitter service health"""
-    try:
-        # TODO: Implement actual graph-sitter health check
-        return {
-            "status": "healthy",
-            "response_time_ms": 0,
-            "enabled": settings.graph_sitter_enabled
-        }
-    except Exception as e:
-        return {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-
-
-def _get_timestamp() -> str:
-    """Get current timestamp in ISO format"""
-    from datetime import datetime
-    return datetime.utcnow().isoformat() + "Z"
-
-
-# Enhanced monitoring endpoints for production-ready features
-
-@router.get("/enhanced")
-async def enhanced_health_check() -> Dict[str, Any]:
-    """Enhanced health check with comprehensive monitoring"""
-    try:
-        from backend.services.resource_manager import resource_manager
-        from backend.utils.circuit_breaker import circuit_breaker_manager
-        from backend.utils.connection_pool import connection_pool_manager
-        
-        # Get resource manager stats
-        resource_stats = resource_manager.get_resource_stats()
-        
-        # Get circuit breaker states
-        circuit_breaker_states = circuit_breaker_manager.get_all_states()
-        
-        # Get connection pool health
-        pool_health = connection_pool_manager.get_all_health_status()
-        
-        # Calculate overall health score
-        health_score = 100
-        issues = []
-        
-        # Check resource management health
-        if resource_stats["quota_violations"] > 0:
-            health_score -= 20
-            issues.append(f"Resource quota violations: {resource_stats['quota_violations']}")
-        
-        if resource_stats["expired_resources"] > 10:
-            health_score -= 15
-            issues.append(f"High number of expired resources: {resource_stats['expired_resources']}")
-        
-        # Check circuit breakers
-        open_breakers = sum(1 for state in circuit_breaker_states.values() 
-                           if state["state"] == "open")
-        if open_breakers > 0:
-            health_score -= 30
-            issues.append(f"Open circuit breakers: {open_breakers}")
-        
-        # Check connection pools
-        unhealthy_pools = sum(1 for health in pool_health.values() 
-                             if health["status"] in ["unhealthy", "degraded"])
-        if unhealthy_pools > 0:
-            health_score -= 25
-            issues.append(f"Unhealthy connection pools: {unhealthy_pools}")
-        
-        # Determine overall status
-        if health_score >= 80:
-            status = "healthy"
-        elif health_score >= 50:
-            status = "degraded"
+        if result == 1:
+            response_time = (time.time() - start_time) * 1000
+            return ServiceCheck(
+                status="healthy",
+                response_time_ms=response_time,
+                details={"connection": "successful", "query_result": result}
+            )
         else:
-            status = "unhealthy"
-        
-        return {
-            "status": status,
-            "health_score": max(0, health_score),
-            "issues": issues,
-            "timestamp": _get_timestamp(),
-            "components": {
-                "resource_manager": {
-                    "status": "healthy" if resource_stats["quota_violations"] == 0 else "degraded",
-                    "stats": resource_stats
-                },
-                "circuit_breakers": {
-                    "status": "healthy" if open_breakers == 0 else "degraded",
-                    "states": circuit_breaker_states
-                },
-                "connection_pools": {
-                    "status": "healthy" if unhealthy_pools == 0 else "degraded",
-                    "health": pool_health
-                }
-            }
-        }
-        
+            return ServiceCheck(
+                status="unhealthy",
+                error="Database query returned unexpected result"
+            )
+            
     except Exception as e:
-        logger.error("Enhanced health check failed", error=str(e))
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": _get_timestamp()
-        }
+        logger.error("Database health check failed", error=str(e))
+        return ServiceCheck(
+            status="unhealthy",
+            error=str(e)
+        )
 
 
-@router.get("/grainchain/detailed")
-async def grainchain_detailed_health() -> Dict[str, Any]:
-    """Detailed Grainchain health check with metrics"""
+async def check_redis() -> ServiceCheck:
+    """Check Redis connectivity"""
+    start_time = time.time()
+    
     try:
-        from backend.integrations.grainchain_client import EnhancedGrainchainClient
+        settings = get_settings()
         
-        client = EnhancedGrainchainClient()
+        # Create Redis connection
+        redis_client = redis.from_url(settings.redis_url)
         
-        # Get comprehensive metrics
-        client_metrics = client.get_client_metrics()
-        client_health = client.get_health_status()
-        service_health = await client.perform_health_check()
+        # Test Redis with ping
+        result = await redis_client.ping()
+        await redis_client.close()
         
-        return {
-            "timestamp": _get_timestamp(),
-            "overall_status": "healthy" if (
-                client_health["status"] == "healthy" and 
-                service_health["service_available"]
-            ) else "unhealthy",
-            "client_health": client_health,
-            "service_health": service_health,
-            "detailed_metrics": client_metrics
-        }
-        
+        if result:
+            response_time = (time.time() - start_time) * 1000
+            return ServiceCheck(
+                status="healthy",
+                response_time_ms=response_time,
+                details={"ping": "successful"}
+            )
+        else:
+            return ServiceCheck(
+                status="unhealthy",
+                error="Redis ping failed"
+            )
+            
     except Exception as e:
-        logger.error("Detailed Grainchain health check failed", error=str(e))
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": _get_timestamp()
-        }
+        logger.error("Redis health check failed", error=str(e))
+        return ServiceCheck(
+            status="unhealthy",
+            error=str(e)
+        )
 
 
-@router.get("/resources")
-async def resource_health() -> Dict[str, Any]:
-    """Resource management health and statistics"""
+async def check_external_service(name: str, url: str, timeout: int = 5) -> ServiceCheck:
+    """Check external service connectivity"""
+    start_time = time.time()
+    
     try:
-        from backend.services.resource_manager import resource_manager
-        
-        stats = resource_manager.get_resource_stats()
-        
-        return {
-            "timestamp": _get_timestamp(),
-            "status": "healthy" if stats["quota_violations"] == 0 else "degraded",
-            "stats": stats
-        }
-        
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
+            async with session.get(f"{url}/health") as response:
+                response_time = (time.time() - start_time) * 1000
+                
+                if response.status == 200:
+                    return ServiceCheck(
+                        status="healthy",
+                        response_time_ms=response_time,
+                        details={"http_status": response.status}
+                    )
+                else:
+                    return ServiceCheck(
+                        status="degraded",
+                        response_time_ms=response_time,
+                        error=f"HTTP {response.status}",
+                        details={"http_status": response.status}
+                    )
+                    
+    except asyncio.TimeoutError:
+        return ServiceCheck(
+            status="unhealthy",
+            error=f"Timeout after {timeout}s"
+        )
     except Exception as e:
-        logger.error("Resource health check failed", error=str(e))
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": _get_timestamp()
-        }
+        logger.error(f"{name} health check failed", error=str(e))
+        return ServiceCheck(
+            status="unhealthy",
+            error=str(e)
+        )
 
 
-@router.get("/circuit-breakers")
-async def circuit_breaker_health() -> Dict[str, Any]:
-    """Circuit breaker health and states"""
-    try:
-        from backend.utils.circuit_breaker import circuit_breaker_manager
-        
-        states = circuit_breaker_manager.get_all_states()
-        
-        # Check for open breakers
-        open_breakers = sum(1 for state in states.values() if state["state"] == "open")
-        
-        return {
-            "timestamp": _get_timestamp(),
-            "status": "healthy" if open_breakers == 0 else "degraded",
-            "open_breakers": open_breakers,
-            "total_breakers": len(states),
-            "states": states
-        }
-        
-    except Exception as e:
-        logger.error("Circuit breaker health check failed", error=str(e))
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": _get_timestamp()
-        }
+async def check_grainchain() -> ServiceCheck:
+    """Check Grainchain service"""
+    settings = get_settings()
+    if not settings.grainchain_enabled:
+        return ServiceCheck(status="disabled")
+    
+    return await check_external_service("grainchain", settings.grainchain_url)
 
 
-@router.get("/connection-pools")
-async def connection_pool_health() -> Dict[str, Any]:
-    """Connection pool health and metrics"""
-    try:
-        from backend.utils.connection_pool import connection_pool_manager
-        
-        metrics = connection_pool_manager.get_all_metrics()
-        health = connection_pool_manager.get_all_health_status()
-        
-        # Count unhealthy pools
-        unhealthy_pools = sum(1 for h in health.values() 
-                             if h["status"] in ["unhealthy", "degraded"])
-        
-        return {
-            "timestamp": _get_timestamp(),
-            "status": "healthy" if unhealthy_pools == 0 else "degraded",
-            "unhealthy_pools": unhealthy_pools,
-            "total_pools": len(health),
-            "metrics": metrics,
-            "health": health
-        }
-        
-    except Exception as e:
-        logger.error("Connection pool health check failed", error=str(e))
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": _get_timestamp()
-        }
+async def check_web_eval() -> ServiceCheck:
+    """Check Web-Eval-Agent service"""
+    settings = get_settings()
+    if not settings.web_eval_enabled:
+        return ServiceCheck(status="disabled")
+    
+    return await check_external_service("web-eval-agent", settings.web_eval_url)
 
 
-@router.get("/readiness")
-async def readiness_probe() -> Dict[str, Any]:
-    """Kubernetes readiness probe endpoint"""
-    try:
-        from backend.services.resource_manager import resource_manager
-        
-        # Check if resource manager is running
-        resource_stats = resource_manager.get_resource_stats()
-        
-        # Basic readiness criteria
-        ready = True
-        issues = []
-        
-        # Check if we have too many failed resources
-        if resource_stats["lifecycle_stats"]["cleanup_failures"] > 10:
-            ready = False
-            issues.append("High number of cleanup failures")
-        
-        return {
-            "ready": ready,
-            "issues": issues,
-            "timestamp": _get_timestamp()
-        }
-        
-    except Exception as e:
-        logger.error("Readiness check failed", error=str(e))
-        return {
-            "ready": False,
-            "issues": [f"Readiness check error: {str(e)}"],
-            "timestamp": _get_timestamp()
-        }
+async def check_graph_sitter() -> ServiceCheck:
+    """Check Graph-Sitter service"""
+    settings = get_settings()
+    if not settings.graph_sitter_enabled:
+        return ServiceCheck(status="disabled")
+    
+    return await check_external_service("graph-sitter", settings.graph_sitter_url)
+
+
+@router.get("/", response_model=HealthStatus)
+async def health_check():
+    """
+    Comprehensive health check endpoint
+    Returns overall system health and individual service status
+    """
+    settings = get_settings()
+    current_time = datetime.now(timezone.utc)
+    uptime = time.time() - _start_time
+    
+    # Run all health checks concurrently
+    checks = await asyncio.gather(
+        check_database(),
+        check_redis(),
+        check_grainchain(),
+        check_web_eval(),
+        check_graph_sitter(),
+        return_exceptions=True
+    )
+    
+    # Process results
+    health_checks = {
+        "database": checks[0] if not isinstance(checks[0], Exception) else ServiceCheck(status="unhealthy", error=str(checks[0])),
+        "redis": checks[1] if not isinstance(checks[1], Exception) else ServiceCheck(status="unhealthy", error=str(checks[1])),
+        "grainchain": checks[2] if not isinstance(checks[2], Exception) else ServiceCheck(status="unhealthy", error=str(checks[2])),
+        "web_eval": checks[3] if not isinstance(checks[3], Exception) else ServiceCheck(status="unhealthy", error=str(checks[3])),
+        "graph_sitter": checks[4] if not isinstance(checks[4], Exception) else ServiceCheck(status="unhealthy", error=str(checks[4])),
+    }
+    
+    # Determine overall status
+    critical_services = ["database", "redis"]
+    overall_status = "healthy"
+    
+    for service_name, check in health_checks.items():
+        if service_name in critical_services and check.status == "unhealthy":
+            overall_status = "unhealthy"
+            break
+        elif check.status == "unhealthy":
+            overall_status = "degraded"
+    
+    return HealthStatus(
+        status=overall_status,
+        timestamp=current_time,
+        version=getattr(settings, 'version', '1.0.0'),
+        environment=settings.environment,
+        uptime_seconds=uptime,
+        checks={name: check.dict() for name, check in health_checks.items()}
+    )
 
 
 @router.get("/liveness")
-async def liveness_probe() -> Dict[str, Any]:
-    """Kubernetes liveness probe endpoint"""
+async def liveness_check():
+    """
+    Simple liveness check for Kubernetes/Docker
+    Returns 200 if the application is running
+    """
+    return {"status": "alive", "timestamp": datetime.now(timezone.utc)}
+
+
+@router.get("/readiness")
+async def readiness_check():
+    """
+    Readiness check for Kubernetes/Docker
+    Returns 200 only if critical services are available
+    """
     try:
-        # Basic liveness check - just ensure the service is responding
-        return {
-            "alive": True,
-            "timestamp": _get_timestamp()
-        }
+        # Check critical services only
+        db_check = await check_database()
+        redis_check = await check_redis()
+        
+        if db_check.status == "healthy" and redis_check.status == "healthy":
+            return {
+                "status": "ready",
+                "timestamp": datetime.now(timezone.utc),
+                "checks": {
+                    "database": db_check.dict(),
+                    "redis": redis_check.dict()
+                }
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Critical services not ready"
+            )
+            
     except Exception as e:
-        logger.error("Liveness check failed", error=str(e))
-        return {
-            "alive": False,
-            "error": str(e),
-            "timestamp": _get_timestamp()
-        }
+        logger.error("Readiness check failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Readiness check failed: {str(e)}"
+        )
+
+
+@router.get("/metrics")
+async def health_metrics():
+    """
+    Health metrics endpoint for monitoring systems
+    Returns detailed metrics about system health
+    """
+    settings = get_settings()
+    current_time = datetime.now(timezone.utc)
+    uptime = time.time() - _start_time
+    
+    # Get detailed health information
+    health_data = await health_check()
+    
+    # Calculate service availability
+    total_services = len(health_data.checks)
+    healthy_services = sum(1 for check in health_data.checks.values() if check["status"] == "healthy")
+    availability_percentage = (healthy_services / total_services) * 100 if total_services > 0 else 0
+    
+    return {
+        "timestamp": current_time,
+        "uptime_seconds": uptime,
+        "overall_status": health_data.status,
+        "service_availability_percentage": availability_percentage,
+        "healthy_services": healthy_services,
+        "total_services": total_services,
+        "environment": settings.environment,
+        "config_tier": settings.config_tier,
+        "version": getattr(settings, 'version', '1.0.0'),
+        "checks": health_data.checks
+    }
+

@@ -7,6 +7,7 @@ from .github_client import GitHubClient
 from .gemini_client import GeminiClient
 from .grainchain_client import GrainchainClient
 from .web_eval_client import WebEvalClient
+from .web_eval_pr_client import WebEvalPRClient
 from .graph_sitter_client import GraphSitterClient
 
 __all__ = [
@@ -19,6 +20,6 @@ __all__ = [
     "GeminiClient",
     "GrainchainClient",
     "WebEvalClient",
+    "WebEvalPRClient",
     "GraphSitterClient",
 ]
-
