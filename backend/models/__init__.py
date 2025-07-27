@@ -1,42 +1,26 @@
 """
-Unified Database Models for CodegenCICD Dashboard
-Comprehensive models supporting all features from all PRs
+Database Models for CodegenCICD Dashboard
 """
-from .project import Project
-from .agent_run import AgentRun, AgentRunLog, AgentRunStatus, AgentRunType
-from .configuration import ProjectConfiguration, ProjectSecret
-from .validation import ValidationPipeline, ValidationStep, ValidationStatus
-from .webhook_event import WebhookEvent, WebhookEventType
-from .user import User, UserRole
-from .notification import Notification, NotificationType
+from .base import Base, BaseModel, TimestampMixin
+from .project import Project, ProjectConfiguration, ProjectSecret
+from .agent_run import AgentRun, AgentRunStep, AgentRunResponse
+from .validation import ValidationRun, ValidationStep, ValidationResult
+from .user import User, UserSession
 
 __all__ = [
-    # Core models
+    "Base",
+    "BaseModel", 
+    "TimestampMixin",
     "Project",
-    "AgentRun", 
-    "AgentRunLog",
-    "AgentRunStatus",
-    "AgentRunType",
-    
-    # Configuration
     "ProjectConfiguration",
     "ProjectSecret",
-    
-    # Validation
-    "ValidationPipeline",
-    "ValidationStep", 
-    "ValidationStatus",
-    
-    # Webhooks
-    "WebhookEvent",
-    "WebhookEventType",
-    
-    # Users (enterprise features)
+    "AgentRun",
+    "AgentRunStep",
+    "AgentRunResponse",
+    "ValidationRun",
+    "ValidationStep",
+    "ValidationResult",
     "User",
-    "UserRole",
-    
-    # Notifications
-    "Notification",
-    "NotificationType"
+    "UserSession",
 ]
 

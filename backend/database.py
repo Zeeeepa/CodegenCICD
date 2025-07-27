@@ -5,13 +5,13 @@ Supports async operations with comprehensive error handling
 import asyncio
 from typing import AsyncGenerator, Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import MetaData, text, event
 from sqlalchemy.pool import NullPool
 import structlog
 from contextlib import asynccontextmanager
 
 from backend.config import get_settings, get_database_url
+from backend.models.base import Base
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
@@ -41,19 +41,6 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 
-class Base(DeclarativeBase):
-    """Base class for all database models with enhanced metadata"""
-    metadata = MetaData(
-        naming_convention={
-            "ix": "ix_%(column_0_label)s",
-            "uq": "uq_%(table_name)s_%(column_0_name)s",
-            "ck": "ck_%(table_name)s_%(constraint_name)s",
-            "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
-            "pk": "pk_%(table_name)s"
-        }
-    )
-
-
 async def init_db() -> None:
     """Initialize database with comprehensive setup"""
     try:
@@ -61,8 +48,10 @@ async def init_db() -> None:
         
         # Import all models to ensure they're registered
         from backend.models import (
-            project, agent_run, configuration, validation, 
-            webhook_event, user, notification
+            Project, ProjectConfiguration, ProjectSecret,
+            AgentRun, AgentRunStep, AgentRunResponse,
+            ValidationRun, ValidationStep, ValidationResult,
+            User, UserSession
         )
         
         async with engine.begin() as conn:
@@ -70,20 +59,20 @@ async def init_db() -> None:
             await conn.run_sync(Base.metadata.create_all)
             
             # Create indexes for performance
-            if settings.is_feature_enabled("enterprise_security"):
+            if settings.is_feature_enabled("monitoring"):
                 await conn.execute(text("""
                     CREATE INDEX IF NOT EXISTS idx_agent_runs_status_created 
                     ON agent_runs(status, created_at);
                 """))
                 await conn.execute(text("""
-                    CREATE INDEX IF NOT EXISTS idx_validation_pipelines_status 
-                    ON validation_pipelines(status, created_at);
+                    CREATE INDEX IF NOT EXISTS idx_validation_runs_status 
+                    ON validation_runs(status, created_at);
                 """))
         
         logger.info("✅ Database initialized successfully")
         
         # Initialize default data if needed
-        if settings.is_feature_enabled("enterprise_security"):
+        if settings.is_feature_enabled("monitoring"):
             await _create_default_data()
             
     except Exception as e:
@@ -334,4 +323,3 @@ class DatabaseUtils:
                 return [dict(row) for row in result.fetchall()]
         except Exception:
             return []
-

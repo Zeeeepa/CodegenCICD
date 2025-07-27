@@ -1,26 +1,24 @@
 """
-Validation pipeline models for the 7-step validation process
+Validation pipeline related database models
 """
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, ForeignKey, Enum, Float
-from sqlalchemy.sql import func
+from typing import Dict, Any, Optional, List
+from sqlalchemy import Column, String, Text, Boolean, JSON, ForeignKey, Integer, Enum, Float
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
-from backend.database import Base
-from typing import Optional, Dict, Any, List
-from enum import Enum as PyEnum
-from datetime import datetime
+import enum
+from .base import BaseModel
 
 
-class ValidationStatus(PyEnum):
-    """Validation status enumeration"""
-    NOT_STARTED = "not_started"
+class ValidationStatus(enum.Enum):
+    """Validation run status enumeration"""
+    PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
-    TIMEOUT = "timeout"
 
 
-class ValidationStepType(PyEnum):
+class ValidationStepType(enum.Enum):
     """Validation step types for the 7-step pipeline"""
     SNAPSHOT_CREATION = "snapshot_creation"
     CODE_CLONE = "code_clone"
@@ -31,420 +29,205 @@ class ValidationStepType(PyEnum):
     AUTO_MERGE = "auto_merge"
 
 
-class ValidationPipeline(Base):
-    __tablename__ = "validation_pipelines"
+class ValidationStepStatus(enum.Enum):
+    """Individual validation step status"""
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class ValidationRun(BaseModel):
+    """Validation run model representing a complete 7-step validation pipeline"""
+    __tablename__ = "validation_runs"
     
-    # Primary key
-    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
+    agent_run_id = Column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=True)  # Optional link to agent run
     
-    # Foreign keys
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
-    agent_run_id = Column(Integer, ForeignKey("agent_runs.id"), nullable=True, index=True)
+    # PR information
+    pr_url = Column(String(500), nullable=False)
+    pr_number = Column(Integer, nullable=False)
+    pr_branch = Column(String(255), nullable=False)
+    pr_commit_sha = Column(String(255), nullable=False)
     
-    # Pipeline information
-    pr_number = Column(Integer, nullable=True)
-    pr_url = Column(String(500), nullable=True)
-    pr_branch = Column(String(255), nullable=True)
-    base_branch = Column(String(255), default="main")
+    # Validation configuration
+    validation_config = Column(JSON, default=dict)  # Configuration for this validation run
     
-    # Status and progress
-    status = Column(Enum(ValidationStatus), default=ValidationStatus.NOT_STARTED, index=True)
-    current_step = Column(Integer, default=0)  # 0-6 for the 7 steps
-    total_steps = Column(Integer, default=7)
+    # Overall status and progress
+    status = Column(Enum(ValidationStatus), default=ValidationStatus.PENDING, nullable=False, index=True)
+    current_step_index = Column(Integer, default=0)
+    progress_percentage = Column(Integer, default=0)
     
-    # Results and metrics
-    overall_score = Column(Float, nullable=True)  # 0-100 overall validation score
-    success_rate = Column(Float, nullable=True)  # Success rate of individual steps
+    # Timing information
+    started_at = Column(String(50))  # ISO timestamp as string
+    completed_at = Column(String(50))  # ISO timestamp as string
+    duration_seconds = Column(Integer)
+    
+    # Results and scoring
+    overall_score = Column(Float)  # Overall confidence score (0-100)
+    passed_steps = Column(Integer, default=0)
+    failed_steps = Column(Integer, default=0)
+    skipped_steps = Column(Integer, default=0)
+    
+    # Auto-merge decision
+    auto_merge_eligible = Column(Boolean, default=False, nullable=False)
+    auto_merge_executed = Column(Boolean, default=False, nullable=False)
+    auto_merge_reason = Column(Text)
     
     # Error handling
-    error_message = Column(Text, nullable=True)
-    error_context = Column(JSON, nullable=True)
+    error_message = Column(Text)
     retry_count = Column(Integer, default=0)
     max_retries = Column(Integer, default=3)
     
-    # Timing information
-    started_at = Column(DateTime(timezone=True), nullable=True)
-    completed_at = Column(DateTime(timezone=True), nullable=True)
-    duration_seconds = Column(Integer, nullable=True)
+    # External service IDs
+    grainchain_snapshot_id = Column(String(255))
+    web_eval_session_id = Column(String(255))
     
-    # Configuration
-    config = Column(JSON, default=dict)  # Pipeline configuration
-    environment_vars = Column(JSON, default=dict)  # Environment variables for validation
-    
-    # Results and logs
-    results = Column(JSON, default=dict)  # Detailed results from each step
-    logs = Column(JSON, default=list)  # Execution logs
-    artifacts = Column(JSON, default=dict)  # Generated artifacts (screenshots, reports, etc.)
-    
-    # Auto-merge settings
-    auto_merge_enabled = Column(Boolean, default=False)
-    merge_threshold_score = Column(Float, default=80.0)  # Minimum score for auto-merge
-    merge_completed = Column(Boolean, default=False)
-    merge_url = Column(String(500), nullable=True)
-    
-    # Timestamps
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    # Metadata
+    metadata = Column(JSON, default=dict)
     
     # Relationships
-    project = relationship("Project", back_populates="validation_pipelines")
-    agent_run = relationship("AgentRun", back_populates="validation_pipelines")
-    steps = relationship("ValidationStep", back_populates="pipeline", cascade="all, delete-orphan", order_by="ValidationStep.step_index")
+    project = relationship("Project", back_populates="validation_runs")
+    agent_run = relationship("AgentRun", back_populates="validation_runs")
+    steps = relationship("ValidationStep", back_populates="validation_run", cascade="all, delete-orphan", order_by="ValidationStep.step_index")
+    results = relationship("ValidationResult", back_populates="validation_run", cascade="all, delete-orphan")
     
-    def __repr__(self):
-        return f"<ValidationPipeline(id={self.id}, project_id={self.project_id}, status='{self.status.value}')>"
+    def __repr__(self) -> str:
+        return f"<ValidationRun(id={self.id}, pr_number={self.pr_number}, status={self.status.value})>"
     
     @property
-    def is_running(self) -> bool:
-        """Check if validation is currently running"""
-        return self.status == ValidationStatus.RUNNING
+    def is_active(self) -> bool:
+        """Check if validation run is currently active"""
+        return self.status in [ValidationStatus.PENDING, ValidationStatus.RUNNING]
     
     @property
     def is_completed(self) -> bool:
-        """Check if validation is completed (success or failure)"""
-        return self.status in [ValidationStatus.COMPLETED, ValidationStatus.FAILED, ValidationStatus.CANCELLED, ValidationStatus.TIMEOUT]
+        """Check if validation run is completed"""
+        return self.status in [ValidationStatus.COMPLETED, ValidationStatus.FAILED, ValidationStatus.CANCELLED]
     
-    @property
-    def is_successful(self) -> bool:
-        """Check if validation completed successfully"""
-        return self.status == ValidationStatus.COMPLETED and self.overall_score and self.overall_score >= self.merge_threshold_score
-    
-    @property
-    def progress_percentage(self) -> float:
-        """Get validation progress as percentage"""
-        if self.total_steps == 0:
-            return 0.0
-        return (self.current_step / self.total_steps) * 100
-    
-    @property
-    def can_auto_merge(self) -> bool:
-        """Check if pipeline can auto-merge"""
-        return (
-            self.auto_merge_enabled and 
-            self.is_successful and 
-            not self.merge_completed and
-            self.pr_number is not None
-        )
-    
-    def get_step_by_type(self, step_type: ValidationStepType) -> Optional["ValidationStep"]:
-        """Get validation step by type"""
+    def get_step(self, step_type: ValidationStepType) -> Optional["ValidationStep"]:
+        """Get specific validation step by type"""
         for step in self.steps:
             if step.step_type == step_type:
                 return step
         return None
     
-    def get_current_step_info(self) -> Optional[Dict[str, Any]]:
-        """Get information about the current step"""
-        if self.current_step < len(self.steps):
-            step = self.steps[self.current_step]
-            return step.to_dict()
+    def get_current_step(self) -> Optional["ValidationStep"]:
+        """Get the currently executing step"""
+        if 0 <= self.current_step_index < len(self.steps):
+            return self.steps[self.current_step_index]
         return None
     
     def calculate_overall_score(self) -> float:
-        """Calculate overall validation score based on step results"""
+        """Calculate overall confidence score based on step results"""
         if not self.steps:
             return 0.0
         
-        total_score = 0.0
-        completed_steps = 0
+        total_weight = 0
+        weighted_score = 0
         
         for step in self.steps:
-            if step.status == ValidationStatus.COMPLETED and step.score is not None:
-                total_score += step.score
-                completed_steps += 1
+            if step.status == ValidationStepStatus.COMPLETED and step.confidence_score is not None:
+                weight = step.weight or 1.0
+                total_weight += weight
+                weighted_score += step.confidence_score * weight
         
-        if completed_steps == 0:
-            return 0.0
-        
-        return total_score / completed_steps
-    
-    def update_progress(self, step_index: int, status: ValidationStatus, 
-                       score: Optional[float] = None, error: Optional[str] = None) -> None:
-        """Update pipeline progress"""
-        self.current_step = step_index
-        
-        if status == ValidationStatus.COMPLETED:
-            if step_index >= self.total_steps - 1:
-                self.status = ValidationStatus.COMPLETED
-                self.completed_at = func.now()
-                if self.started_at:
-                    duration = datetime.now() - self.started_at
-                    self.duration_seconds = int(duration.total_seconds())
-        elif status == ValidationStatus.FAILED:
-            self.status = ValidationStatus.FAILED
-            self.error_message = error
-            self.completed_at = func.now()
-        
-        # Recalculate overall score
-        self.overall_score = self.calculate_overall_score()
-    
-    def add_log(self, message: str, level: str = "INFO", step_index: Optional[int] = None) -> None:
-        """Add log entry"""
-        if not isinstance(self.logs, list):
-            self.logs = []
-        
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "level": level,
-            "message": message,
-            "step_index": step_index
-        }
-        self.logs.append(log_entry)
-    
-    def set_artifact(self, key: str, value: Any) -> None:
-        """Set pipeline artifact"""
-        if not isinstance(self.artifacts, dict):
-            self.artifacts = {}
-        self.artifacts[key] = value
-    
-    def get_artifact(self, key: str, default: Any = None) -> Any:
-        """Get pipeline artifact"""
-        if not isinstance(self.artifacts, dict):
-            return default
-        return self.artifacts.get(key, default)
-    
-    def to_dict(self, include_steps: bool = True, include_logs: bool = False) -> Dict[str, Any]:
-        """Convert pipeline to dictionary for API responses"""
-        data = {
-            "id": self.id,
-            "project_id": self.project_id,
-            "agent_run_id": self.agent_run_id,
-            "pr_number": self.pr_number,
-            "pr_url": self.pr_url,
-            "pr_branch": self.pr_branch,
-            "base_branch": self.base_branch,
-            "status": self.status.value,
-            "current_step": self.current_step,
-            "total_steps": self.total_steps,
-            "progress_percentage": self.progress_percentage,
-            "overall_score": self.overall_score,
-            "success_rate": self.success_rate,
-            "error_message": self.error_message,
-            "retry_count": self.retry_count,
-            "max_retries": self.max_retries,
-            "auto_merge_enabled": self.auto_merge_enabled,
-            "merge_threshold_score": self.merge_threshold_score,
-            "merge_completed": self.merge_completed,
-            "merge_url": self.merge_url,
-            "can_auto_merge": self.can_auto_merge,
-            "is_running": self.is_running,
-            "is_completed": self.is_completed,
-            "is_successful": self.is_successful,
-            "config": self.config,
-            "results": self.results,
-            "artifacts": self.artifacts,
-            "duration_seconds": self.duration_seconds,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
-        
-        if include_steps:
-            data["steps"] = [step.to_dict() for step in self.steps]
-        
-        if include_logs:
-            data["logs"] = self.logs
-        
-        return data
+        return weighted_score / total_weight if total_weight > 0 else 0.0
 
 
-class ValidationStep(Base):
+class ValidationStep(BaseModel):
+    """Individual step in the validation pipeline"""
     __tablename__ = "validation_steps"
     
-    # Primary key
-    id = Column(Integer, primary_key=True, index=True)
+    validation_run_id = Column(UUID(as_uuid=True), ForeignKey("validation_runs.id"), nullable=False)
     
-    # Foreign key
-    pipeline_id = Column(Integer, ForeignKey("validation_pipelines.id"), nullable=False, index=True)
-    
-    # Step information
+    # Step identification
     step_index = Column(Integer, nullable=False)  # 0-6 for the 7 steps
     step_type = Column(Enum(ValidationStepType), nullable=False)
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
+    step_name = Column(String(255), nullable=False)
+    step_description = Column(Text)
     
-    # Status and results
-    status = Column(Enum(ValidationStatus), default=ValidationStatus.NOT_STARTED, index=True)
-    score = Column(Float, nullable=True)  # 0-100 score for this step
+    # Step execution
+    status = Column(Enum(ValidationStepStatus), default=ValidationStepStatus.PENDING, nullable=False)
+    started_at = Column(String(50))  # ISO timestamp as string
+    completed_at = Column(String(50))  # ISO timestamp as string
+    duration_seconds = Column(Integer)
     
-    # Execution details
-    command = Column(Text, nullable=True)  # Command executed
-    output = Column(Text, nullable=True)  # Command output
-    error_output = Column(Text, nullable=True)  # Error output
-    exit_code = Column(Integer, nullable=True)  # Exit code
+    # Step configuration and inputs
+    step_config = Column(JSON, default=dict)
+    input_data = Column(JSON, default=dict)
     
-    # Timing
-    started_at = Column(DateTime(timezone=True), nullable=True)
-    completed_at = Column(DateTime(timezone=True), nullable=True)
-    duration_seconds = Column(Integer, nullable=True)
+    # Step results and outputs
+    output_data = Column(JSON, default=dict)
+    logs = Column(Text)
+    error_message = Column(Text)
     
-    # Configuration and results
-    config = Column(JSON, default=dict)  # Step-specific configuration
-    results = Column(JSON, default=dict)  # Detailed results
-    artifacts = Column(JSON, default=dict)  # Step artifacts
+    # Scoring and validation
+    confidence_score = Column(Float)  # 0-100 confidence score for this step
+    weight = Column(Float, default=1.0)  # Weight for overall score calculation
+    is_critical = Column(Boolean, default=False, nullable=False)  # If true, failure blocks auto-merge
     
-    # Retry information
+    # Retry handling
     retry_count = Column(Integer, default=0)
     max_retries = Column(Integer, default=3)
     
-    # Timestamps
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    # External service references
+    external_service_id = Column(String(255))  # ID from external service (grainchain, web-eval, etc.)
+    external_service_url = Column(String(500))  # URL to external service results
+    
+    # Metadata
+    metadata = Column(JSON, default=dict)
     
     # Relationships
-    pipeline = relationship("ValidationPipeline", back_populates="steps")
+    validation_run = relationship("ValidationRun", back_populates="steps")
     
-    def __repr__(self):
-        return f"<ValidationStep(id={self.id}, step_type='{self.step_type.value}', status='{self.status.value}')>"
+    def __repr__(self) -> str:
+        return f"<ValidationStep(validation_run_id={self.validation_run_id}, step={self.step_index}, type={self.step_type.value})>"
     
     @property
     def is_completed(self) -> bool:
-        """Check if step is completed"""
-        return self.status in [ValidationStatus.COMPLETED, ValidationStatus.FAILED, ValidationStatus.CANCELLED, ValidationStatus.TIMEOUT]
+        """Check if step is completed (success or failure)"""
+        return self.status in [ValidationStepStatus.COMPLETED, ValidationStepStatus.FAILED, ValidationStepStatus.SKIPPED]
     
     @property
     def is_successful(self) -> bool:
         """Check if step completed successfully"""
-        return self.status == ValidationStatus.COMPLETED
+        return self.status == ValidationStepStatus.COMPLETED
+
+
+class ValidationResult(BaseModel):
+    """Aggregated results and artifacts from validation runs"""
+    __tablename__ = "validation_results"
     
-    @property
-    def can_retry(self) -> bool:
-        """Check if step can be retried"""
-        return self.retry_count < self.max_retries and self.status == ValidationStatus.FAILED
+    validation_run_id = Column(UUID(as_uuid=True), ForeignKey("validation_runs.id"), nullable=False)
     
-    def start_execution(self) -> None:
-        """Mark step as started"""
-        self.status = ValidationStatus.RUNNING
-        self.started_at = func.now()
+    # Result identification
+    result_type = Column(String(100), nullable=False)  # code_analysis, deployment_logs, ui_test_report, etc.
+    result_name = Column(String(255), nullable=False)
     
-    def complete_execution(self, success: bool, score: Optional[float] = None, 
-                          output: Optional[str] = None, error: Optional[str] = None,
-                          exit_code: Optional[int] = None) -> None:
-        """Mark step as completed"""
-        self.status = ValidationStatus.COMPLETED if success else ValidationStatus.FAILED
-        self.completed_at = func.now()
-        self.score = score
-        
-        if output:
-            self.output = output
-        if error:
-            self.error_output = error
-        if exit_code is not None:
-            self.exit_code = exit_code
-        
-        # Calculate duration
-        if self.started_at:
-            duration = datetime.now() - self.started_at
-            self.duration_seconds = int(duration.total_seconds())
+    # Result content
+    result_data = Column(JSON, default=dict)
+    result_summary = Column(Text)
     
-    def set_result(self, key: str, value: Any) -> None:
-        """Set step result"""
-        if not isinstance(self.results, dict):
-            self.results = {}
-        self.results[key] = value
+    # Result metadata
+    file_path = Column(String(500))  # Path to result file if stored separately
+    file_size_bytes = Column(Integer)
+    mime_type = Column(String(100))
     
-    def get_result(self, key: str, default: Any = None) -> Any:
-        """Get step result"""
-        if not isinstance(self.results, dict):
-            return default
-        return self.results.get(key, default)
+    # Result scoring
+    confidence_score = Column(Float)
+    severity_level = Column(String(50))  # info, warning, error, critical
     
-    def set_artifact(self, key: str, value: Any) -> None:
-        """Set step artifact"""
-        if not isinstance(self.artifacts, dict):
-            self.artifacts = {}
-        self.artifacts[key] = value
+    # Categorization
+    tags = Column(JSON, default=list)  # List of tags for categorization
     
-    def get_artifact(self, key: str, default: Any = None) -> Any:
-        """Get step artifact"""
-        if not isinstance(self.artifacts, dict):
-            return default
-        return self.artifacts.get(key, default)
+    # Metadata
+    metadata = Column(JSON, default=dict)
     
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert step to dictionary for API responses"""
-        return {
-            "id": self.id,
-            "pipeline_id": self.pipeline_id,
-            "step_index": self.step_index,
-            "step_type": self.step_type.value,
-            "name": self.name,
-            "description": self.description,
-            "status": self.status.value,
-            "score": self.score,
-            "command": self.command,
-            "output": self.output,
-            "error_output": self.error_output,
-            "exit_code": self.exit_code,
-            "retry_count": self.retry_count,
-            "max_retries": self.max_retries,
-            "can_retry": self.can_retry,
-            "is_completed": self.is_completed,
-            "is_successful": self.is_successful,
-            "config": self.config,
-            "results": self.results,
-            "artifacts": self.artifacts,
-            "duration_seconds": self.duration_seconds,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
+    # Relationships
+    validation_run = relationship("ValidationRun", back_populates="results")
     
-    @classmethod
-    def create_default_steps(cls, pipeline_id: int) -> List["ValidationStep"]:
-        """Create the default 7 validation steps"""
-        steps = [
-            cls(
-                pipeline_id=pipeline_id,
-                step_index=0,
-                step_type=ValidationStepType.SNAPSHOT_CREATION,
-                name="Snapshot Creation",
-                description="Create sandbox environment with grainchain + web-eval-agent + graph-sitter"
-            ),
-            cls(
-                pipeline_id=pipeline_id,
-                step_index=1,
-                step_type=ValidationStepType.CODE_CLONE,
-                name="Code Clone",
-                description="Clone PR branch to sandbox environment"
-            ),
-            cls(
-                pipeline_id=pipeline_id,
-                step_index=2,
-                step_type=ValidationStepType.CODE_ANALYSIS,
-                name="Code Analysis",
-                description="Analyze code quality using graph-sitter"
-            ),
-            cls(
-                pipeline_id=pipeline_id,
-                step_index=3,
-                step_type=ValidationStepType.DEPLOYMENT,
-                name="Deployment",
-                description="Execute setup commands and deploy application"
-            ),
-            cls(
-                pipeline_id=pipeline_id,
-                step_index=4,
-                step_type=ValidationStepType.DEPLOYMENT_VALIDATION,
-                name="Deployment Validation",
-                description="Validate deployment success using Gemini API"
-            ),
-            cls(
-                pipeline_id=pipeline_id,
-                step_index=5,
-                step_type=ValidationStepType.UI_TESTING,
-                name="UI Testing",
-                description="Run comprehensive UI tests with web-eval-agent"
-            ),
-            cls(
-                pipeline_id=pipeline_id,
-                step_index=6,
-                step_type=ValidationStepType.AUTO_MERGE,
-                name="Auto-merge",
-                description="Merge PR if validation passes and auto-merge is enabled"
-            )
-        ]
-        return steps
+    def __repr__(self) -> str:
+        return f"<ValidationResult(validation_run_id={self.validation_run_id}, type={self.result_type}, name={self.result_name})>"
 
