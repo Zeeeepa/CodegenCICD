@@ -213,18 +213,37 @@ async def _check_grainchain_health() -> Dict[str, Any]:
 
 
 async def _check_web_eval_health() -> Dict[str, Any]:
-    """Check web-eval-agent service health"""
+    """Check web-eval-agent service health with enhanced monitoring"""
     try:
-        # TODO: Implement actual web-eval-agent health check
+        from backend.integrations.web_eval_client import EnhancedWebEvalClient
+        
+        client = EnhancedWebEvalClient()
+        
+        # Perform comprehensive health check
+        health_check_result = await client.perform_health_check()
+        client_health = client.get_health_status()
+        
         return {
-            "status": "healthy",
-            "response_time_ms": 0,
-            "enabled": settings.web_eval_enabled
+            "status": "healthy" if health_check_result["service_available"] else "unhealthy",
+            "response_time_ms": int(health_check_result["response_time"] * 1000),
+            "enabled": settings.web_eval_enabled,
+            "service_available": health_check_result["service_available"],
+            "client_health_score": client_health["health_score"],
+            "client_status": client_health["status"],
+            "issues": client_health["issues"],
+            "active_sessions": client_health["detailed_metrics"]["active_sessions"]["count"],
+            "test_success_rate": (
+                client_health["detailed_metrics"]["test_metrics"]["successful_tests"] / 
+                max(1, client_health["detailed_metrics"]["test_metrics"]["total_tests"])
+            ),
+            "correlation_id": health_check_result["correlation_id"]
         }
     except Exception as e:
+        logger.error("Enhanced web-eval health check failed", error=str(e))
         return {
             "status": "unhealthy",
-            "error": str(e)
+            "error": str(e),
+            "enabled": settings.web_eval_enabled
         }
 
 
@@ -360,6 +379,48 @@ async def grainchain_detailed_health() -> Dict[str, Any]:
         
     except Exception as e:
         logger.error("Detailed Grainchain health check failed", error=str(e))
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": _get_timestamp()
+        }
+
+
+@router.get("/web-eval/detailed")
+async def web_eval_detailed_health() -> Dict[str, Any]:
+    """Detailed Web-Eval-Agent health check with comprehensive metrics"""
+    try:
+        from backend.integrations.web_eval_client import EnhancedWebEvalClient
+        
+        client = EnhancedWebEvalClient()
+        
+        # Get comprehensive metrics
+        client_metrics = client.get_client_metrics()
+        client_health = client.get_health_status()
+        service_health = await client.perform_health_check()
+        
+        return {
+            "timestamp": _get_timestamp(),
+            "overall_status": "healthy" if (
+                client_health["status"] == "healthy" and 
+                service_health["service_available"]
+            ) else "unhealthy",
+            "client_health": client_health,
+            "service_health": service_health,
+            "detailed_metrics": client_metrics,
+            "ui_testing_capabilities": {
+                "ai_powered_testing": True,
+                "visual_regression": True,
+                "accessibility_audit": True,
+                "performance_profiling": True,
+                "cross_browser_testing": True,
+                "mobile_responsive_testing": True,
+                "comprehensive_reporting": True
+            }
+        }
+        
+    except Exception as e:
+        logger.error("Detailed Web-Eval health check failed", error=str(e))
         return {
             "status": "unhealthy",
             "error": str(e),
