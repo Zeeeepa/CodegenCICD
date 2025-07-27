@@ -1,0 +1,479 @@
+# =============================================================================
+# CodegenCICD - Continuous Integration Workflow
+# Comprehensive CI pipeline with testing, linting, and security scanning
+# =============================================================================
+
+name: 🔄 Continuous Integration
+
+on:
+  push:
+    branches: [ main, develop, 'feature/*', 'hotfix/*' ]
+  pull_request:
+    branches: [ main, develop ]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      run_security_scan:
+        description: 'Run comprehensive security scan'
+        required: false
+        default: 'true'
+        type: boolean
+      skip_tests:
+        description: 'Skip test execution (emergency only)'
+        required: false
+        default: 'false'
+        type: boolean
+
+# Concurrency control - cancel previous runs on new push
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+jobs:
+  # =============================================================================
+  # SETUP AND VALIDATION
+  # =============================================================================
+  setup:
+    name: 🔍 Setup & Validation
+    runs-on: ubuntu-latest
+    outputs:
+      python-version: ${{ steps.setup.outputs.python-version }}
+      node-version: ${{ steps.setup.outputs.node-version }}
+      should-run-tests: ${{ steps.setup.outputs.should-run-tests }}
+      should-run-security: ${{ steps.setup.outputs.should-run-security }}
+      cache-key: ${{ steps.setup.outputs.cache-key }}
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better analysis
+
+      - name: 🔧 Setup Environment
+        id: setup
+        run: |
+          echo "python-version=${{ env.PYTHON_VERSION }}" >> $GITHUB_OUTPUT
+          echo "node-version=${{ env.NODE_VERSION }}" >> $GITHUB_OUTPUT
+          echo "should-run-tests=${{ github.event.inputs.skip_tests != 'true' }}" >> $GITHUB_OUTPUT
+          echo "should-run-security=${{ github.event.inputs.run_security_scan != 'false' }}" >> $GITHUB_OUTPUT
+          echo "cache-key=ci-${{ runner.os }}-${{ hashFiles('**/requirements.txt', '**/package*.json') }}" >> $GITHUB_OUTPUT
+
+      - name: 📊 Repository Analysis
+        run: |
+          echo "::group::Repository Statistics"
+          echo "📁 Total files: $(find . -type f | wc -l)"
+          echo "🐍 Python files: $(find . -name '*.py' | wc -l)"
+          echo "🌐 JavaScript/TypeScript files: $(find . -name '*.js' -o -name '*.ts' -o -name '*.jsx' -o -name '*.tsx' | wc -l)"
+          echo "🐳 Docker files: $(find . -name 'Dockerfile*' -o -name 'docker-compose*.yml' | wc -l)"
+          echo "::endgroup::"
+
+  # =============================================================================
+  # PYTHON BACKEND TESTING
+  # =============================================================================
+  backend-tests:
+    name: 🐍 Backend Tests
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.should-run-tests == 'true'
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_USER: postgres
+          POSTGRES_DB: codegencd_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ needs.setup.outputs.python-version }}
+          cache: 'pip'
+          cache-dependency-path: 'backend/requirements.txt'
+
+      - name: 📦 Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-asyncio pytest-cov pytest-xdist pytest-mock httpx faker coverage
+
+      - name: 🔍 Code Quality Checks
+        run: |
+          echo "::group::Linting with flake8"
+          pip install flake8
+          flake8 backend/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 backend/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          echo "::endgroup::"
+          
+          echo "::group::Type checking with mypy"
+          pip install mypy
+          mypy backend/ --ignore-missing-imports || true
+          echo "::endgroup::"
+          
+          echo "::group::Import sorting with isort"
+          pip install isort
+          isort --check-only --diff backend/ || true
+          echo "::endgroup::"
+          
+          echo "::group::Code formatting with black"
+          pip install black
+          black --check --diff backend/ || true
+          echo "::endgroup::"
+
+      - name: 🧪 Run Tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:test_password@localhost:5432/codegencd_test
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test_secret_key_for_ci_testing_only
+          JWT_SECRET_KEY: test_jwt_secret_key_for_ci_testing_only
+          ENVIRONMENT: testing
+        run: |
+          cd backend
+          python -m pytest tests/ -v \
+            --cov=. \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-report=term-missing \
+            --cov-fail-under=70 \
+            --junitxml=pytest-results.xml \
+            --maxfail=5 \
+            -x
+
+      - name: 📊 Upload Coverage Reports
+        uses: codecov/codecov-action@v3
+        if: always()
+        with:
+          file: ./backend/coverage.xml
+          flags: backend
+          name: backend-coverage
+          fail_ci_if_error: false
+
+      - name: 📋 Upload Test Results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: backend-test-results
+          path: |
+            backend/pytest-results.xml
+            backend/htmlcov/
+          retention-days: 30
+
+  # =============================================================================
+  # FRONTEND TESTING (Placeholder for future React app)
+  # =============================================================================
+  frontend-tests:
+    name: 🌐 Frontend Tests
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.should-run-tests == 'true'
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ needs.setup.outputs.node-version }}
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package*.json'
+
+      - name: 📦 Install Dependencies
+        run: |
+          if [ -f "frontend/package.json" ]; then
+            cd frontend
+            npm ci
+          else
+            echo "⚠️ Frontend package.json not found - creating placeholder"
+            mkdir -p frontend
+            cd frontend
+            npm init -y
+            npm install --save-dev jest @testing-library/react @testing-library/jest-dom
+          fi
+
+      - name: 🧪 Run Frontend Tests
+        run: |
+          cd frontend
+          if [ -f "package.json" ] && grep -q '"test"' package.json; then
+            npm test -- --coverage --watchAll=false
+          else
+            echo "✅ Frontend tests placeholder - will be implemented in Step 4"
+          fi
+
+      - name: 📊 Upload Frontend Coverage
+        uses: codecov/codecov-action@v3
+        if: always()
+        with:
+          file: ./frontend/coverage/lcov.info
+          flags: frontend
+          name: frontend-coverage
+          fail_ci_if_error: false
+
+  # =============================================================================
+  # DOCKER BUILD TESTING
+  # =============================================================================
+  docker-build:
+    name: 🐳 Docker Build Test
+    runs-on: ubuntu-latest
+    needs: setup
+    strategy:
+      matrix:
+        service: [backend, frontend]
+        stage: [production, development]
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔧 Build Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./${{ matrix.service }}/Dockerfile
+          target: ${{ matrix.stage }}
+          push: false
+          tags: codegencd-${{ matrix.service }}:${{ matrix.stage }}-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VERSION=${{ github.sha }}
+            VCS_REF=${{ github.sha }}
+
+      - name: 🧪 Test Docker Image
+        run: |
+          # Test that the image was built successfully
+          docker images | grep codegencd-${{ matrix.service }}
+          
+          # Basic smoke test
+          if [ "${{ matrix.service }}" = "backend" ]; then
+            echo "🧪 Testing backend image..."
+            docker run --rm --name test-backend \
+              -e DATABASE_URL=sqlite:///test.db \
+              -e SECRET_KEY=test_key \
+              codegencd-backend:${{ matrix.stage }}-test \
+              python -c "print('✅ Backend image working')" || true
+          fi
+
+  # =============================================================================
+  # SECURITY SCANNING
+  # =============================================================================
+  security-scan:
+    name: 🔒 Security Scanning
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.should-run-security == 'true'
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python for Security Scan
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ needs.setup.outputs.python-version }}
+
+      - name: 🔍 Python Security Scan with Bandit
+        run: |
+          pip install bandit[toml]
+          bandit -r backend/ -f json -o bandit-report.json || true
+          bandit -r backend/ -f txt || true
+
+      - name: 🔍 Dependency Security Scan
+        run: |
+          pip install safety
+          safety check --json --output safety-report.json || true
+          safety check || true
+
+      - name: 🐳 Docker Security Scan with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: 📊 Upload Security Scan Results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: 📋 Upload Security Reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+            safety-report.json
+            trivy-results.sarif
+          retention-days: 30
+
+  # =============================================================================
+  # INTEGRATION TESTS
+  # =============================================================================
+  integration-tests:
+    name: 🔗 Integration Tests
+    runs-on: ubuntu-latest
+    needs: [setup, backend-tests]
+    if: needs.setup.outputs.should-run-tests == 'true'
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐳 Start Services with Docker Compose
+        run: |
+          # Create minimal .env for testing
+          cat > .env << EOF
+          POSTGRES_PASSWORD=test_password
+          SECRET_KEY=test_secret_key_for_integration_testing
+          JWT_SECRET_KEY=test_jwt_secret_key_for_integration_testing
+          ENCRYPTION_KEY=test_encryption_key_for_integration_testing
+          ENCRYPTION_SALT=test_salt_for_integration_testing
+          ENVIRONMENT=testing
+          DEBUG=true
+          CODEGEN_ORG_ID=test_org
+          CODEGEN_API_TOKEN=test_token
+          GITHUB_TOKEN=test_github_token
+          GEMINI_API_KEY=test_gemini_key
+          CLOUDFLARE_API_KEY=test_cf_key
+          CLOUDFLARE_ACCOUNT_ID=test_cf_account
+          CLOUDFLARE_WORKER_NAME=test_worker
+          CLOUDFLARE_WORKER_URL=https://test.workers.dev
+          EOF
+          
+          # Start core services
+          docker-compose up -d postgres redis
+          
+          # Wait for services to be ready
+          sleep 30
+          
+          # Check service health
+          docker-compose ps
+
+      - name: 🧪 Run Integration Tests
+        run: |
+          # Install test dependencies
+          pip install requests pytest httpx
+          
+          # Run integration tests
+          echo "🧪 Running integration tests..."
+          python -c "
+          import requests
+          import time
+          
+          # Wait for services
+          time.sleep(10)
+          
+          # Test database connection
+          print('✅ Integration tests placeholder - will be expanded with actual services')
+          "
+
+      - name: 🧹 Cleanup
+        if: always()
+        run: |
+          docker-compose down -v
+          docker system prune -f
+
+  # =============================================================================
+  # QUALITY GATES
+  # =============================================================================
+  quality-gate:
+    name: 🚪 Quality Gate
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests, docker-build, security-scan]
+    if: always()
+    
+    steps:
+      - name: 📊 Evaluate Quality Metrics
+        run: |
+          echo "::group::Quality Gate Evaluation"
+          
+          # Check if critical jobs passed
+          BACKEND_TESTS="${{ needs.backend-tests.result }}"
+          DOCKER_BUILD="${{ needs.docker-build.result }}"
+          SECURITY_SCAN="${{ needs.security-scan.result }}"
+          
+          echo "Backend Tests: $BACKEND_TESTS"
+          echo "Docker Build: $DOCKER_BUILD"
+          echo "Security Scan: $SECURITY_SCAN"
+          
+          # Determine overall status
+          if [[ "$BACKEND_TESTS" == "success" && "$DOCKER_BUILD" == "success" ]]; then
+            echo "✅ Quality gate PASSED"
+            echo "QUALITY_GATE_STATUS=passed" >> $GITHUB_ENV
+          else
+            echo "❌ Quality gate FAILED"
+            echo "QUALITY_GATE_STATUS=failed" >> $GITHUB_ENV
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      - name: 📝 Quality Gate Summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## 🚪 Quality Gate Results
+          
+          | Check | Status |
+          |-------|--------|
+          | Backend Tests | ${{ needs.backend-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |
+          | Frontend Tests | ${{ needs.frontend-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |
+          | Docker Build | ${{ needs.docker-build.result == 'success' && '✅ Passed' || '❌ Failed' }} |
+          | Security Scan | ${{ needs.security-scan.result == 'success' && '✅ Passed' || '⚠️ Warning' }} |
+          
+          **Overall Status: ${{ env.QUALITY_GATE_STATUS == 'passed' && '✅ PASSED' || '❌ FAILED' }}**
+          EOF
+
+  # =============================================================================
+  # NOTIFICATION
+  # =============================================================================
+  notify:
+    name: 📢 Notification
+    runs-on: ubuntu-latest
+    needs: [quality-gate]
+    if: always() && (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    
+    steps:
+      - name: 📢 Notify Results
+        run: |
+          STATUS="${{ needs.quality-gate.result }}"
+          if [[ "$STATUS" == "success" ]]; then
+            echo "🎉 CI Pipeline completed successfully!"
+          else
+            echo "⚠️ CI Pipeline completed with issues"
+          fi
+          
+          # Here you could add Slack, Discord, or email notifications
+          echo "Notification sent (placeholder)"
+

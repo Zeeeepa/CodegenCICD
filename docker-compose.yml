@@ -1,104 +1,165 @@
 # =============================================================================
-# CodegenCICD Dashboard - Complete Docker Compose Configuration
-# Supports development, staging, and production deployments
+# CodegenCICD - Full Stack Docker Compose Configuration
+# Complete development and production environment setup
 # =============================================================================
 
 version: '3.8'
 
+# =============================================================================
+# SHARED NETWORKS
+# =============================================================================
+networks:
+  codegencd-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+  monitoring-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
+# =============================================================================
+# SHARED VOLUMES
+# =============================================================================
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  grainchain-workspaces:
+    driver: local
+
+# =============================================================================
+# CORE SERVICES
+# =============================================================================
 services:
   # =============================================================================
   # DATABASE SERVICES
   # =============================================================================
   postgres:
     image: postgres:15-alpine
-    container_name: codegencd_postgres
+    container_name: codegencd-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: codegencd
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codegencd_secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-codegencd}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     networks:
-      - codegencd_network
+      - codegencd-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d codegencd"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-codegencd}"]
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
 
   redis:
     image: redis:7-alpine
-    container_name: codegencd_redis
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    container_name: codegencd-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
     volumes:
-      - redis_data:/data
+      - redis-data:/data
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     networks:
-      - codegencd_network
+      - codegencd-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
 
   # =============================================================================
-  # BACKEND SERVICES
+  # APPLICATION SERVICES
   # =============================================================================
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: ${DOCKER_TARGET:-development}
       args:
-        - CONFIG_TIER=${CONFIG_TIER:-basic}
-    container_name: codegencd_backend
+        CONFIG_TIER: ${CONFIG_TIER:-basic}
+        BUILD_DATE: ${BUILD_DATE}
+        VERSION: ${VERSION:-dev}
+        VCS_REF: ${VCS_REF:-dev}
+    container_name: codegencd-backend
+    restart: unless-stopped
     environment:
-      - CONFIG_TIER=${CONFIG_TIER:-basic}
-      - ENVIRONMENT=${ENVIRONMENT:-development}
-      - DEBUG=${DEBUG:-true}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Database Configuration
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-codegencd}
       
-      # Database
-      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-codegencd_secure_password}@postgres:5432/codegencd
-      - REDIS_URL=redis://redis:6379/0
+      # Redis Configuration
+      REDIS_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
       
-      # Security
-      - SECRET_KEY=${SECRET_KEY}
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
-      - ENCRYPTION_SALT=${ENCRYPTION_SALT}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      # Security Configuration
+      SECRET_KEY: ${SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      ENCRYPTION_SALT: ${ENCRYPTION_SALT}
       
-      # External APIs
-      - CODEGEN_ORG_ID=${CODEGEN_ORG_ID}
-      - CODEGEN_API_TOKEN=${CODEGEN_API_TOKEN}
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - CLOUDFLARE_API_KEY=${CLOUDFLARE_API_KEY}
-      - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}
-      - CLOUDFLARE_WORKER_NAME=${CLOUDFLARE_WORKER_NAME}
-      - CLOUDFLARE_WORKER_URL=${CLOUDFLARE_WORKER_URL}
+      # Application Configuration
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       
-      # Validation Tools
-      - GRAINCHAIN_ENABLED=${GRAINCHAIN_ENABLED:-true}
-      - WEB_EVAL_ENABLED=${WEB_EVAL_ENABLED:-true}
-      - GRAPH_SITTER_ENABLED=${GRAPH_SITTER_ENABLED:-true}
+      # External API Configuration
+      CODEGEN_ORG_ID: ${CODEGEN_ORG_ID}
+      CODEGEN_API_TOKEN: ${CODEGEN_API_TOKEN}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      CLOUDFLARE_API_KEY: ${CLOUDFLARE_API_KEY}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID}
+      CLOUDFLARE_WORKER_NAME: ${CLOUDFLARE_WORKER_NAME}
+      CLOUDFLARE_WORKER_URL: ${CLOUDFLARE_WORKER_URL}
       
-      # Docker socket for grainchain
-      - DOCKER_HOST=unix:///var/run/docker.sock
+      # Integration Services
+      GRAINCHAIN_URL: http://grainchain:8001
+      WEB_EVAL_URL: http://web-eval-agent:8002
+      GRAPH_SITTER_URL: http://graph-sitter:8003
+      
+      # Monitoring
+      PROMETHEUS_ENABLED: ${PROMETHEUS_ENABLED:-false}
+      SENTRY_DSN: ${SENTRY_DSN:-}
     volumes:
+      - ./backend:/app:${VOLUME_MODE:-rw}
+      - grainchain-workspaces:/tmp/grainchain_workspaces
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - grainchain_workspaces:/tmp/grainchain_workspaces
-      - validation_workspaces:/tmp/validation_workspaces
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     networks:
-      - codegencd_network
+      - codegencd-network
+      - monitoring-network
     depends_on:
       postgres:
         condition: service_healthy
@@ -110,26 +171,37 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
 
-  # =============================================================================
-  # FRONTEND SERVICE
-  # =============================================================================
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      target: ${DOCKER_TARGET:-development}
       args:
-        - REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost:8000}
-        - REACT_APP_WS_URL=${REACT_APP_WS_URL:-ws://localhost:8000}
-    container_name: codegencd_frontend
+        BUILD_DATE: ${BUILD_DATE}
+        VERSION: ${VERSION:-dev}
+        VCS_REF: ${VCS_REF:-dev}
+    container_name: codegencd-frontend
+    restart: unless-stopped
     environment:
-      - REACT_APP_API_URL=http://backend:8000
-      - REACT_APP_WS_URL=ws://backend:8000
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000}
+      REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://localhost:8000}
+      REACT_APP_ENVIRONMENT: ${ENVIRONMENT:-development}
+      REACT_APP_VERSION: ${VERSION:-dev}
+    volumes:
+      - ./frontend:/app:${VOLUME_MODE:-rw}
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
     networks:
-      - codegencd_network
+      - codegencd-network
     depends_on:
       - backend
     healthcheck:
@@ -137,72 +209,123 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    restart: unless-stopped
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
 
   # =============================================================================
-  # BACKGROUND WORKERS (Intermediate+ Tier)
+  # INTEGRATION SERVICES
   # =============================================================================
-  celery_worker:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    container_name: codegencd_celery_worker
-    command: celery -A backend.celery_app worker --loglevel=info --concurrency=4
+  grainchain:
+    image: grainchain/grainchain:latest
+    container_name: codegencd-grainchain
+    restart: unless-stopped
     environment:
-      - CONFIG_TIER=${CONFIG_TIER:-basic}
-      - ENVIRONMENT=${ENVIRONMENT:-development}
-      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-codegencd_secure_password}@postgres:5432/codegencd
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      
-      # External APIs
-      - CODEGEN_ORG_ID=${CODEGEN_ORG_ID}
-      - CODEGEN_API_TOKEN=${CODEGEN_API_TOKEN}
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      GRAINCHAIN_HOST: 0.0.0.0
+      GRAINCHAIN_PORT: 8001
+      GRAINCHAIN_WORKSPACE_DIR: /workspaces
+      DOCKER_HOST: unix:///var/run/docker.sock
     volumes:
+      - grainchain-workspaces:/workspaces
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - grainchain_workspaces:/tmp/grainchain_workspaces
+    ports:
+      - "${GRAINCHAIN_PORT:-8001}:8001"
     networks:
-      - codegencd_network
-    depends_on:
-      - postgres
-      - redis
+      - codegencd-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
     profiles:
+      - full
       - intermediate
       - advanced
-    restart: unless-stopped
 
-  celery_beat:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    container_name: codegencd_celery_beat
-    command: celery -A backend.celery_app beat --loglevel=info
+  web-eval-agent:
+    image: web-eval-agent/web-eval-agent:latest
+    container_name: codegencd-web-eval
+    restart: unless-stopped
     environment:
-      - CONFIG_TIER=${CONFIG_TIER:-basic}
-      - ENVIRONMENT=${ENVIRONMENT:-development}
-      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-codegencd_secure_password}@postgres:5432/codegencd
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      WEB_EVAL_HOST: 0.0.0.0
+      WEB_EVAL_PORT: 8002
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    ports:
+      - "${WEB_EVAL_PORT:-8002}:8002"
     networks:
-      - codegencd_network
-    depends_on:
-      - postgres
-      - redis
+      - codegencd-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
     profiles:
+      - full
       - intermediate
       - advanced
+
+  graph-sitter:
+    image: graph-sitter/graph-sitter:latest
+    container_name: codegencd-graph-sitter
     restart: unless-stopped
+    environment:
+      GRAPH_SITTER_HOST: 0.0.0.0
+      GRAPH_SITTER_PORT: 8003
+      GRAPH_SITTER_LANGUAGES: ${GRAPH_SITTER_LANGUAGES:-typescript,javascript,python,rust,go}
+    ports:
+      - "${GRAPH_SITTER_PORT:-8003}:8003"
+    networks:
+      - codegencd-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    profiles:
+      - full
+      - intermediate
+      - advanced
 
   # =============================================================================
   # MONITORING SERVICES (Advanced Tier)
   # =============================================================================
   prometheus:
     image: prom/prometheus:latest
-    container_name: codegencd_prometheus
+    container_name: codegencd-prometheus
+    restart: unless-stopped
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -212,157 +335,193 @@ services:
       - '--web.enable-lifecycle'
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
+      - prometheus-data:/prometheus
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT:-9090}:9090"
     networks:
-      - codegencd_network
+      - monitoring-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
     profiles:
       - advanced
-    restart: unless-stopped
+      - monitoring
 
   grafana:
     image: grafana/grafana:latest
-    container_name: codegencd_grafana
+    container_name: codegencd-grafana
+    restart: unless-stopped
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
-      - GF_USERS_ALLOW_SIGN_UP=false
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: false
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
     volumes:
-      - grafana_data:/var/lib/grafana
+      - grafana-data:/var/lib/grafana
       - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
     ports:
-      - "3001:3000"
+      - "${GRAFANA_PORT:-3001}:3000"
     networks:
-      - codegencd_network
+      - monitoring-network
     depends_on:
       - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
     profiles:
       - advanced
-    restart: unless-stopped
+      - monitoring
 
   # =============================================================================
   # REVERSE PROXY (Production)
   # =============================================================================
   nginx:
     image: nginx:alpine
-    container_name: codegencd_nginx
+    container_name: codegencd-nginx
+    restart: unless-stopped
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
     ports:
-      - "80:80"
-      - "443:443"
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
     networks:
-      - codegencd_network
+      - codegencd-network
     depends_on:
       - backend
       - frontend
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
     profiles:
       - production
-    restart: unless-stopped
+      - nginx
 
   # =============================================================================
-  # VALIDATION TOOLS (Optional External Services)
+  # WORKER SERVICES (Intermediate+ Tier)
   # =============================================================================
-  grainchain:
-    image: grainchain/grainchain:latest
-    container_name: codegencd_grainchain
+  celery-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: production
+    container_name: codegencd-celery-worker
+    restart: unless-stopped
+    command: celery -A backend.celery_app worker --loglevel=info --concurrency=4
     environment:
-      - GRAINCHAIN_PORT=8001
-      - GRAINCHAIN_WORKSPACE_DIR=/workspaces
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-codegencd}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-}@redis:6379/0
     volumes:
+      - grainchain-workspaces:/tmp/grainchain_workspaces
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - grainchain_workspaces:/workspaces
-    ports:
-      - "8001:8001"
     networks:
-      - codegencd_network
+      - codegencd-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
     profiles:
-      - validation-tools
-    restart: unless-stopped
+      - intermediate
+      - advanced
+      - workers
 
-  web-eval-agent:
-    image: web-eval-agent/web-eval-agent:latest
-    container_name: codegencd_web_eval
+  celery-beat:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: production
+    container_name: codegencd-celery-beat
+    restart: unless-stopped
+    command: celery -A backend.celery_app beat --loglevel=info
     environment:
-      - WEB_EVAL_PORT=8002
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-    ports:
-      - "8002:8002"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-codegencd}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-}@redis:6379/0
     networks:
-      - codegencd_network
+      - codegencd-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
     profiles:
-      - validation-tools
-    restart: unless-stopped
-
-  graph-sitter:
-    image: graph-sitter/graph-sitter:latest
-    container_name: codegencd_graph_sitter
-    environment:
-      - GRAPH_SITTER_PORT=8003
-    ports:
-      - "8003:8003"
-    networks:
-      - codegencd_network
-    profiles:
-      - validation-tools
-    restart: unless-stopped
-
-# =============================================================================
-# NETWORKS
-# =============================================================================
-networks:
-  codegencd_network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
-
-# =============================================================================
-# VOLUMES
-# =============================================================================
-volumes:
-  postgres_data:
-    driver: local
-  redis_data:
-    driver: local
-  prometheus_data:
-    driver: local
-  grafana_data:
-    driver: local
-  grainchain_workspaces:
-    driver: local
-  validation_workspaces:
-    driver: local
+      - intermediate
+      - advanced
+      - workers
 
 # =============================================================================
 # USAGE EXAMPLES
 # =============================================================================
 
-# Basic Development Setup:
-# docker-compose up -d
+# Basic development setup:
+# docker-compose up postgres redis backend frontend
 
-# Intermediate Setup (with background workers):
-# docker-compose --profile intermediate up -d
+# Intermediate setup with workers:
+# docker-compose --profile intermediate up
 
-# Advanced Setup (with monitoring):
-# docker-compose --profile advanced up -d
+# Advanced setup with monitoring:
+# docker-compose --profile advanced up
 
-# Production Setup (with nginx):
-# docker-compose --profile production up -d
+# Production setup with nginx:
+# docker-compose --profile production up
 
-# Full Setup (all services):
-# docker-compose --profile intermediate --profile advanced --profile validation-tools up -d
+# Full monitoring stack:
+# docker-compose --profile monitoring up prometheus grafana
 
-# Scale workers:
-# docker-compose --profile intermediate up -d --scale celery_worker=4
+# Development with hot reload:
+# DOCKER_TARGET=development VOLUME_MODE=rw docker-compose up
 
-# View logs:
-# docker-compose logs -f backend
-# docker-compose logs -f celery_worker
-
-# Health checks:
-# docker-compose ps
-# curl http://localhost:8000/health
+# Production deployment:
+# DOCKER_TARGET=production ENVIRONMENT=production docker-compose --profile production up -d
 

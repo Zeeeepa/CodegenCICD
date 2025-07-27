@@ -1,0 +1,461 @@
+# =============================================================================
+# CodegenCICD - Automated Release Workflow
+# Semantic versioning and automated release management
+# =============================================================================
+
+name: 🏷️ Automated Release
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Type of release'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - prerelease
+      custom_version:
+        description: 'Custom version (optional, overrides release_type)'
+        required: false
+        type: string
+      skip_tests:
+        description: 'Skip tests (emergency release only)'
+        required: false
+        default: false
+        type: boolean
+
+# Prevent concurrent releases
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+
+jobs:
+  # =============================================================================
+  # DETERMINE RELEASE VERSION
+  # =============================================================================
+  version:
+    name: 📋 Version Planning
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      changelog: ${{ steps.changelog.outputs.changelog }}
+      should-release: ${{ steps.version.outputs.should-release }}
+      is-prerelease: ${{ steps.version.outputs.is-prerelease }}
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Determine Next Version
+        id: version
+        run: |
+          # Get current version from git tags
+          CURRENT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Current version: $CURRENT_VERSION"
+          
+          # Remove 'v' prefix for processing
+          CURRENT_VERSION=${CURRENT_VERSION#v}
+          
+          # Parse version components
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+          
+          # Determine next version based on input or conventional commits
+          if [[ -n "${{ github.event.inputs.custom_version }}" ]]; then
+            NEXT_VERSION="${{ github.event.inputs.custom_version }}"
+          elif [[ "${{ github.event.inputs.release_type }}" == "major" ]]; then
+            NEXT_VERSION="$((MAJOR + 1)).0.0"
+          elif [[ "${{ github.event.inputs.release_type }}" == "minor" ]]; then
+            NEXT_VERSION="$MAJOR.$((MINOR + 1)).0"
+          elif [[ "${{ github.event.inputs.release_type }}" == "prerelease" ]]; then
+            NEXT_VERSION="$MAJOR.$MINOR.$((PATCH + 1))-rc.$(date +%Y%m%d%H%M%S)"
+          else
+            # Default to patch
+            NEXT_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+          fi
+          
+          # Check if this is a prerelease
+          IS_PRERELEASE="false"
+          if [[ "$NEXT_VERSION" == *"-"* ]]; then
+            IS_PRERELEASE="true"
+          fi
+          
+          # Check if we should release (has changes since last tag)
+          SHOULD_RELEASE="true"
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            # Check for conventional commit patterns
+            COMMITS_SINCE_TAG=$(git rev-list ${CURRENT_VERSION}..HEAD --count 2>/dev/null || echo "1")
+            if [[ "$COMMITS_SINCE_TAG" == "0" ]]; then
+              SHOULD_RELEASE="false"
+            fi
+          fi
+          
+          echo "Next version: $NEXT_VERSION"
+          echo "Is prerelease: $IS_PRERELEASE"
+          echo "Should release: $SHOULD_RELEASE"
+          
+          echo "version=$NEXT_VERSION" >> $GITHUB_OUTPUT
+          echo "is-prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+          echo "should-release=$SHOULD_RELEASE" >> $GITHUB_OUTPUT
+
+      - name: 📝 Generate Changelog
+        id: changelog
+        if: steps.version.outputs.should-release == 'true'
+        run: |
+          echo "📝 Generating changelog..."
+          
+          # Get commits since last tag
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          
+          if [[ -n "$LAST_TAG" ]]; then
+            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          else
+            COMMITS=$(git log --pretty=format:"- %s (%h)" --no-merges -10)
+          fi
+          
+          # Categorize commits
+          FEATURES=""
+          FIXES=""
+          CHORES=""
+          BREAKING=""
+          
+          while IFS= read -r commit; do
+            if [[ "$commit" == *"feat"* || "$commit" == *"feature"* ]]; then
+              FEATURES="$FEATURES\n$commit"
+            elif [[ "$commit" == *"fix"* || "$commit" == *"bug"* ]]; then
+              FIXES="$FIXES\n$commit"
+            elif [[ "$commit" == *"BREAKING"* || "$commit" == *"breaking"* ]]; then
+              BREAKING="$BREAKING\n$commit"
+            else
+              CHORES="$CHORES\n$commit"
+            fi
+          done <<< "$COMMITS"
+          
+          # Build changelog
+          CHANGELOG="## What's Changed\n\n"
+          
+          if [[ -n "$BREAKING" ]]; then
+            CHANGELOG="$CHANGELOG### 💥 Breaking Changes\n$BREAKING\n\n"
+          fi
+          
+          if [[ -n "$FEATURES" ]]; then
+            CHANGELOG="$CHANGELOG### ✨ New Features\n$FEATURES\n\n"
+          fi
+          
+          if [[ -n "$FIXES" ]]; then
+            CHANGELOG="$CHANGELOG### 🐛 Bug Fixes\n$FIXES\n\n"
+          fi
+          
+          if [[ -n "$CHORES" ]]; then
+            CHANGELOG="$CHANGELOG### 🔧 Other Changes\n$CHORES\n\n"
+          fi
+          
+          CHANGELOG="$CHANGELOG\n**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LAST_TAG}...v${{ steps.version.outputs.version }}"
+          
+          # Save changelog to file and output
+          echo -e "$CHANGELOG" > CHANGELOG.md
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+  # =============================================================================
+  # PRE-RELEASE VALIDATION
+  # =============================================================================
+  validate:
+    name: ✅ Pre-Release Validation
+    runs-on: ubuntu-latest
+    needs: version
+    if: needs.version.outputs.should-release == 'true' && github.event.inputs.skip_tests != 'true'
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 🧪 Run Quick Tests
+        run: |
+          echo "🧪 Running pre-release validation tests..."
+          
+          # Install dependencies
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-asyncio
+          
+          # Run critical tests only
+          cd backend
+          python -m pytest tests/ -v -k "not slow" --maxfail=3 || exit 1
+          
+          echo "✅ Pre-release validation passed"
+
+      - name: 🔍 Security Check
+        run: |
+          echo "🔍 Running security validation..."
+          
+          # Quick security scan
+          pip install bandit safety
+          bandit -r backend/ -ll || exit 1
+          safety check || exit 1
+          
+          echo "✅ Security validation passed"
+
+  # =============================================================================
+  # BUILD RELEASE ARTIFACTS
+  # =============================================================================
+  build:
+    name: 🏗️ Build Release Artifacts
+    runs-on: ubuntu-latest
+    needs: [version, validate]
+    if: needs.version.outputs.should-release == 'true' && (needs.validate.result == 'success' || needs.validate.result == 'skipped')
+    
+    permissions:
+      contents: read
+      packages: write
+    
+    strategy:
+      matrix:
+        service: [backend, frontend]
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📝 Extract Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-${{ matrix.service }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ needs.version.outputs.version }}
+            type=sha,prefix={{branch}}-
+
+      - name: 🏗️ Build and Push Release Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./${{ matrix.service }}/Dockerfile
+          target: production
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+            VERSION=${{ needs.version.outputs.version }}
+            VCS_REF=${{ github.sha }}
+          platforms: linux/amd64,linux/arm64
+
+  # =============================================================================
+  # CREATE GITHUB RELEASE
+  # =============================================================================
+  release:
+    name: 🏷️ Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [version, build]
+    if: needs.version.outputs.should-release == 'true'
+    
+    permissions:
+      contents: write
+      packages: read
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Create Git Tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          TAG_NAME="v${{ needs.version.outputs.version }}"
+          git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
+          git push origin "$TAG_NAME"
+
+      - name: 📦 Create Release Assets
+        run: |
+          echo "📦 Creating release assets..."
+          
+          # Create deployment manifests
+          mkdir -p release-assets
+          
+          # Docker Compose for production
+          cp docker-compose.yml release-assets/docker-compose-v${{ needs.version.outputs.version }}.yml
+          
+          # Environment template
+          cp .env.template release-assets/env-template-v${{ needs.version.outputs.version }}.txt
+          
+          # Database schema
+          cp scripts/init-db.sql release-assets/database-schema-v${{ needs.version.outputs.version }}.sql
+          
+          # Create deployment guide
+          cat > release-assets/DEPLOYMENT-GUIDE-v${{ needs.version.outputs.version }}.md << EOF
+          # CodegenCICD v${{ needs.version.outputs.version }} Deployment Guide
+          
+          ## Quick Start
+          
+          1. Download the release assets
+          2. Copy \`env-template-v${{ needs.version.outputs.version }}.txt\` to \`.env\`
+          3. Update the environment variables in \`.env\`
+          4. Run: \`docker-compose -f docker-compose-v${{ needs.version.outputs.version }}.yml up -d\`
+          
+          ## Container Images
+          
+          - Backend: \`ghcr.io/${{ github.repository }}-backend:${{ needs.version.outputs.version }}\`
+          - Frontend: \`ghcr.io/${{ github.repository }}-frontend:${{ needs.version.outputs.version }}\`
+          
+          ## Database Migration
+          
+          Use the provided \`database-schema-v${{ needs.version.outputs.version }}.sql\` for initial setup.
+          
+          ## Support
+          
+          For issues, please visit: https://github.com/${{ github.repository }}/issues
+          EOF
+
+      - name: 🚀 Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          release_name: CodegenCICD v${{ needs.version.outputs.version }}
+          body: ${{ needs.version.outputs.changelog }}
+          draft: false
+          prerelease: ${{ needs.version.outputs.is-prerelease }}
+
+      - name: 📎 Upload Release Assets
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release-assets/
+          asset_name: codegencd-v${{ needs.version.outputs.version }}-assets.zip
+          asset_content_type: application/zip
+
+  # =============================================================================
+  # POST-RELEASE ACTIONS
+  # =============================================================================
+  post-release:
+    name: 📋 Post-Release Actions
+    runs-on: ubuntu-latest
+    needs: [version, release]
+    if: needs.version.outputs.should-release == 'true'
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🔄 Update Version Files
+        run: |
+          echo "🔄 Updating version files..."
+          
+          # Update version in package files
+          echo "${{ needs.version.outputs.version }}" > VERSION
+          
+          # Update README with latest version
+          sed -i "s/Version: .*/Version: ${{ needs.version.outputs.version }}/" README.md || true
+          
+          # Commit version updates
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add VERSION README.md
+          git commit -m "chore: bump version to ${{ needs.version.outputs.version }}" || true
+          git push || true
+
+      - name: 🚀 Trigger Production Deployment
+        if: needs.version.outputs.is-prerelease == 'false'
+        run: |
+          echo "🚀 Triggering production deployment..."
+          
+          # Trigger CD workflow for production deployment
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/cd.yml/dispatches \
+            -d '{"ref":"main","inputs":{"environment":"production","force_deploy":"false"}}'
+
+      - name: 📢 Announce Release
+        run: |
+          echo "📢 Announcing release v${{ needs.version.outputs.version }}..."
+          
+          # Here you would send notifications to:
+          # - Slack channels
+          # - Discord servers
+          # - Email lists
+          # - Social media
+          
+          echo "Release announcement sent (placeholder)"
+
+  # =============================================================================
+  # RELEASE NOTIFICATION
+  # =============================================================================
+  notify:
+    name: 📢 Release Notification
+    runs-on: ubuntu-latest
+    needs: [version, release, post-release]
+    if: always() && needs.version.outputs.should-release == 'true'
+    
+    steps:
+      - name: 📊 Release Summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## 🏷️ Release Summary
+          
+          ### Version: v${{ needs.version.outputs.version }}
+          
+          - **Type**: ${{ needs.version.outputs.is-prerelease == 'true' && 'Pre-release' || 'Stable Release' }}
+          - **Status**: ${{ needs.release.result == 'success' && '✅ Success' || '❌ Failed' }}
+          - **Released at**: $(date -u)
+          
+          ### Container Images
+          - Backend: \`ghcr.io/${{ github.repository }}-backend:${{ needs.version.outputs.version }}\`
+          - Frontend: \`ghcr.io/${{ github.repository }}-frontend:${{ needs.version.outputs.version }}\`
+          
+          ### Links
+          - [Release Page](https://github.com/${{ github.repository }}/releases/tag/v${{ needs.version.outputs.version }})
+          - [Container Registry](https://github.com/${{ github.repository }}/pkgs/container/codegencd)
+          - [Deployment Guide](https://github.com/${{ github.repository }}/releases/download/v${{ needs.version.outputs.version }}/DEPLOYMENT-GUIDE-v${{ needs.version.outputs.version }}.md)
+          EOF
+
+      - name: 📢 Send Notifications
+        run: |
+          STATUS="${{ needs.release.result }}"
+          if [[ "$STATUS" == "success" ]]; then
+            echo "🎉 Release v${{ needs.version.outputs.version }} completed successfully!"
+          else
+            echo "⚠️ Release v${{ needs.version.outputs.version }} encountered issues"
+          fi
+          
+          # Send notifications (placeholder)
+          echo "Release notifications sent"
+

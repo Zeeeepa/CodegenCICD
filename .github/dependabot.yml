@@ -1,0 +1,308 @@
+# =============================================================================
+# CodegenCICD - Dependabot Configuration
+# Automated dependency updates for security and maintenance
+# =============================================================================
+
+version: 2
+
+updates:
+  # =============================================================================
+  # PYTHON DEPENDENCIES (Backend)
+  # =============================================================================
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "Zeeeepa"
+    assignees:
+      - "Zeeeepa"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "python"
+      - "backend"
+    milestone: "Dependency Updates"
+    
+    # Security updates
+    allow:
+      - dependency-type: "all"
+    
+    # Ignore specific dependencies if needed
+    ignore:
+      # Ignore major version updates for stable dependencies
+      - dependency-name: "fastapi"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "sqlalchemy"
+        update-types: ["version-update:semver-major"]
+    
+    # Group related updates
+    groups:
+      fastapi-ecosystem:
+        patterns:
+          - "fastapi*"
+          - "uvicorn*"
+          - "starlette*"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      database-drivers:
+        patterns:
+          - "asyncpg*"
+          - "psycopg*"
+          - "sqlalchemy*"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      testing-tools:
+        patterns:
+          - "pytest*"
+          - "coverage*"
+          - "httpx*"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      security-tools:
+        patterns:
+          - "bandit*"
+          - "safety*"
+          - "cryptography*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # =============================================================================
+  # JAVASCRIPT DEPENDENCIES (Frontend)
+  # =============================================================================
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "Zeeeepa"
+    assignees:
+      - "Zeeeepa"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "javascript"
+      - "frontend"
+    milestone: "Dependency Updates"
+    
+    # Security updates
+    allow:
+      - dependency-type: "all"
+    
+    # Ignore specific dependencies
+    ignore:
+      # Ignore major React updates until ready
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+    
+    # Group related updates
+    groups:
+      react-ecosystem:
+        patterns:
+          - "react*"
+          - "@types/react*"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      testing-libraries:
+        patterns:
+          - "@testing-library/*"
+          - "jest*"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      build-tools:
+        patterns:
+          - "webpack*"
+          - "babel*"
+          - "@babel/*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # =============================================================================
+  # DOCKER DEPENDENCIES
+  # =============================================================================
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "Zeeeepa"
+    assignees:
+      - "Zeeeepa"
+    commit-message:
+      prefix: "docker"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "backend"
+    
+    # Only allow patch and minor updates for base images
+    ignore:
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "09:30"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "Zeeeepa"
+    assignees:
+      - "Zeeeepa"
+    commit-message:
+      prefix: "docker"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "frontend"
+    
+    # Only allow patch and minor updates for base images
+    ignore:
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "nginx"
+        update-types: ["version-update:semver-major"]
+
+  # =============================================================================
+  # GITHUB ACTIONS DEPENDENCIES
+  # =============================================================================
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "Zeeeepa"
+    assignees:
+      - "Zeeeepa"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "ci-cd"
+    
+    # Group related GitHub Actions
+    groups:
+      setup-actions:
+        patterns:
+          - "actions/setup-*"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      docker-actions:
+        patterns:
+          - "docker/*"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      security-actions:
+        patterns:
+          - "github/codeql-action*"
+          - "aquasecurity/*"
+          - "anchore/*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # =============================================================================
+  # DOCKER COMPOSE DEPENDENCIES
+  # =============================================================================
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      day: "first-monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "Zeeeepa"
+    assignees:
+      - "Zeeeepa"
+    commit-message:
+      prefix: "docker-compose"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "docker-compose"
+      - "infrastructure"
+    
+    # Conservative updates for infrastructure components
+    ignore:
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "redis"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "prometheus"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "grafana"
+        update-types: ["version-update:semver-major"]
+
+# =============================================================================
+# DEPENDABOT CONFIGURATION NOTES
+# =============================================================================
+
+# This configuration provides:
+# 1. Automated security updates for all ecosystems
+# 2. Scheduled dependency updates to prevent drift
+# 3. Grouped updates to reduce PR noise
+# 4. Conservative approach for major version updates
+# 5. Proper labeling and assignment for review
+# 6. Milestone tracking for dependency updates
+
+# Security Benefits:
+# - Automatic security patches
+# - Regular dependency freshness
+# - Vulnerability detection and remediation
+# - Compliance with security policies
+
+# Maintenance Benefits:
+# - Reduced manual dependency management
+# - Consistent update schedule
+# - Grouped related updates
+# - Clear commit messages and labels
+
