@@ -5,6 +5,9 @@ from .base_client import BaseClient, APIError, RateLimitError, AuthenticationErr
 from .codegen_client import CodegenClient
 from .github_client import GitHubClient
 from .gemini_client import GeminiClient
+from .grainchain_client import GrainchainClient
+from .web_eval_client import WebEvalClient
+from .graph_sitter_client import GraphSitterClient
 
 __all__ = [
     "BaseClient",
@@ -14,5 +17,8 @@ __all__ = [
     "CodegenClient",
     "GitHubClient",
     "GeminiClient",
+    "GrainchainClient",
+    "WebEvalClient",
+    "GraphSitterClient",
 ]
 

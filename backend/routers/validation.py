@@ -488,49 +488,19 @@ async def _create_validation_steps(validation_run_id: str, project: Project, db:
 
 
 async def _execute_validation_pipeline(validation_run_id: str) -> None:
-    """Execute validation pipeline in background"""
+    """Execute validation pipeline in background using ValidationService"""
     try:
-        logger.info("Starting validation pipeline execution", validation_run_id=validation_run_id)
+        from backend.services.validation_service import ValidationService
         
-        # TODO: Implement actual validation pipeline execution
-        # This is a placeholder that will be expanded in the next phase
+        # Initialize and use validation service
+        validation_service = ValidationService()
+        await validation_service.initialize()
         
-        # For now, just update the status to indicate it's running
-        async with AsyncSessionLocal() as db:
-            query = select(ValidationRun).where(ValidationRun.id == validation_run_id)
-            result = await db.execute(query)
-            validation_run = result.scalar_one_or_none()
+        try:
+            await validation_service.execute_validation_pipeline(validation_run_id)
+        finally:
+            await validation_service.close()
             
-            if validation_run:
-                validation_run.status = ValidationStatus.RUNNING
-                validation_run.started_at = _get_timestamp()
-                await db.commit()
-                
-                logger.info("Validation pipeline started", validation_run_id=validation_run_id)
-        
-        # Placeholder: simulate some processing time
-        import asyncio
-        await asyncio.sleep(5)
-        
-        # Update to completed for now
-        async with AsyncSessionLocal() as db:
-            query = select(ValidationRun).where(ValidationRun.id == validation_run_id)
-            result = await db.execute(query)
-            validation_run = result.scalar_one_or_none()
-            
-            if validation_run:
-                validation_run.status = ValidationStatus.COMPLETED
-                validation_run.completed_at = _get_timestamp()
-                validation_run.progress_percentage = 100
-                validation_run.overall_score = 85.0  # Placeholder score
-                validation_run.passed_steps = 5
-                validation_run.failed_steps = 0
-                validation_run.skipped_steps = 2
-                await db.commit()
-                
-                logger.info("Validation pipeline completed (placeholder)", 
-                           validation_run_id=validation_run_id)
-    
     except Exception as e:
         logger.error("Failed to execute validation pipeline",
                     validation_run_id=validation_run_id,
@@ -558,4 +528,3 @@ def _get_timestamp() -> str:
     """Get current timestamp in ISO format"""
     from datetime import datetime
     return datetime.utcnow().isoformat() + "Z"
-

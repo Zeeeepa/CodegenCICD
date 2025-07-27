@@ -204,25 +204,84 @@ async def _trigger_validation_pipeline(repo_full_name: str,
                                      pr_commit_sha: str) -> None:
     """Trigger validation pipeline for a new PR"""
     try:
-        # TODO: Implement validation pipeline trigger
-        # This will be implemented in the validation service
+        from backend.database import AsyncSessionLocal
+        from backend.models import Project, ValidationRun
+        from backend.models.validation import ValidationStatus
+        from sqlalchemy import select, and_
         
-        logger.info("Validation pipeline triggered",
-                   repository=repo_full_name,
-                   pr_number=pr_number,
-                   pr_branch=pr_branch,
-                   pr_commit_sha=pr_commit_sha)
-        
-        # For now, just log the trigger
-        # In the full implementation, this would:
-        # 1. Find the project in database by repo name
-        # 2. Create a ValidationRun record
-        # 3. Start the 7-step validation process
-        # 4. Send real-time updates via WebSocket
+        async with AsyncSessionLocal() as db:
+            # Find project by repository name
+            owner, repo = repo_full_name.split('/')
+            project_query = select(Project).where(
+                and_(
+                    Project.github_owner == owner,
+                    Project.github_repo == repo,
+                    Project.is_active == True
+                )
+            )
+            result = await db.execute(project_query)
+            project = result.scalar_one_or_none()
+            
+            if not project:
+                logger.warning("No active project found for repository",
+                             repository=repo_full_name)
+                return
+            
+            if not project.validation_enabled:
+                logger.info("Validation disabled for project",
+                           project_name=project.name,
+                           repository=repo_full_name)
+                return
+            
+            # Check if validation run already exists for this PR
+            existing_query = select(ValidationRun).where(
+                and_(
+                    ValidationRun.project_id == project.id,
+                    ValidationRun.pr_number == pr_number,
+                    ValidationRun.status.in_([ValidationStatus.PENDING, ValidationStatus.RUNNING])
+                )
+            )
+            result = await db.execute(existing_query)
+            existing_run = result.scalar_one_or_none()
+            
+            if existing_run:
+                logger.info("Validation run already exists for PR",
+                           project_name=project.name,
+                           pr_number=pr_number)
+                return
+            
+            # Create validation run
+            validation_run = ValidationRun(
+                project_id=project.id,
+                pr_url=pr_url,
+                pr_number=pr_number,
+                pr_branch=pr_branch,
+                pr_commit_sha=pr_commit_sha,
+                status=ValidationStatus.PENDING,
+                current_step_index=0,
+                progress_percentage=0
+            )
+            
+            db.add(validation_run)
+            await db.commit()
+            await db.refresh(validation_run)
+            
+            # Create validation steps
+            from backend.routers.validation import _create_validation_steps
+            await _create_validation_steps(str(validation_run.id), project, db)
+            
+            # Start validation pipeline in background
+            import asyncio
+            from backend.routers.validation import _execute_validation_pipeline
+            asyncio.create_task(_execute_validation_pipeline(str(validation_run.id)))
+            
+            logger.info("Validation pipeline triggered successfully",
+                       validation_run_id=str(validation_run.id),
+                       project_name=project.name,
+                       pr_number=pr_number)
         
     except Exception as e:
         logger.error("Failed to trigger validation pipeline",
                     repository=repo_full_name,
                     pr_number=pr_number,
                     error=str(e))
-

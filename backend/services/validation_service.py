@@ -1,611 +1,617 @@
 """
-Enhanced Validation Service implementing the complete 7-step validation pipeline
-Integrates grainchain, web-eval-agent, graph-sitter, and Gemini API
+Validation pipeline service for CodegenCICD Dashboard
 """
 import asyncio
-from typing import Optional, Dict, Any, List, Tuple
-import structlog
+from typing import Dict, Any, Optional, List
 from datetime import datetime
-import json
-import tempfile
-import shutil
-import os
-from pathlib import Path
+import structlog
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-from backend.config import get_settings
-from backend.database import get_db_session
-from backend.models.validation import ValidationPipeline, ValidationStep, ValidationStatus, ValidationStepType
-from backend.models.project import Project
-from backend.models.agent_run import AgentRun
+from .base_service import BaseService
+from backend.database import AsyncSessionLocal
+from backend.models import ValidationRun, ValidationStep, ValidationResult, Project
+from backend.models.validation import ValidationStatus, ValidationStepStatus, ValidationStepType
+from backend.integrations import GeminiClient, GitHubClient
 from backend.integrations.grainchain_client import GrainchainClient
 from backend.integrations.web_eval_client import WebEvalClient
 from backend.integrations.graph_sitter_client import GraphSitterClient
-from backend.integrations.gemini_client import GeminiClient
-from backend.integrations.github_client import GitHubClient
-from backend.services.websocket_service import WebSocketService
+from backend.config import get_settings
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
 
 
-class ValidationService:
-    """Comprehensive validation service implementing the 7-step pipeline"""
+class ValidationService(BaseService):
+    """Service for executing validation pipelines"""
     
     def __init__(self):
-        self.grainchain_client = GrainchainClient() if settings.grainchain_enabled else None
-        self.web_eval_client = WebEvalClient() if settings.web_eval_enabled else None
-        self.graph_sitter_client = GraphSitterClient() if settings.graph_sitter_enabled else None
-        self.gemini_client = GeminiClient()
-        self.github_client = GitHubClient()
-        self.websocket_service = WebSocketService()
+        super().__init__("validation_service")
+        self._active_validations: Dict[str, asyncio.Task] = {}
+    
+    async def _initialize_service(self) -> None:
+        """Initialize validation service"""
+        self.logger.info("Validation service initialized")
+    
+    async def _close_service(self) -> None:
+        """Close validation service"""
+        # Cancel all active validations
+        for validation_id, task in self._active_validations.items():
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         
-        logger.info("Validation service initialized", 
-                   grainchain_enabled=settings.grainchain_enabled,
-                   web_eval_enabled=settings.web_eval_enabled,
-                   graph_sitter_enabled=settings.graph_sitter_enabled)
+        self._active_validations.clear()
     
-    async def create_validation_pipeline(self, project_id: int, pr_number: int,
-                                       pr_url: str, pr_branch: str,
-                                       agent_run_id: Optional[int] = None,
-                                       auto_merge_enabled: bool = False) -> ValidationPipeline:
-        """Create a new validation pipeline"""
-        async with get_db_session() as session:
-            # Create pipeline
-            pipeline = ValidationPipeline(
-                project_id=project_id,
-                agent_run_id=agent_run_id,
-                pr_number=pr_number,
-                pr_url=pr_url,
-                pr_branch=pr_branch,
-                auto_merge_enabled=auto_merge_enabled,
-                status=ValidationStatus.NOT_STARTED
-            )
-            
-            session.add(pipeline)
-            await session.flush()  # Get the ID
-            
-            # Create default validation steps
-            steps = ValidationStep.create_default_steps(pipeline.id)
-            for step in steps:
-                session.add(step)
-            
-            await session.commit()
-            await session.refresh(pipeline)
-            
-            logger.info("Validation pipeline created", 
-                       pipeline_id=pipeline.id,
-                       project_id=project_id,
-                       pr_number=pr_number)
-            
-            return pipeline
-    
-    async def start_validation_pipeline(self, pipeline_id: int) -> bool:
-        """Start the validation pipeline execution"""
+    async def execute_validation_pipeline(self, validation_run_id: str) -> None:
+        """Execute validation pipeline for a validation run"""
+        if validation_run_id in self._active_validations:
+            self.logger.warning("Validation pipeline already running", 
+                              validation_run_id=validation_run_id)
+            return
+        
+        # Create and start validation task
+        task = asyncio.create_task(self._run_validation_pipeline(validation_run_id))
+        self._active_validations[validation_run_id] = task
+        
         try:
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                if not pipeline:
-                    raise ValueError(f"Pipeline {pipeline_id} not found")
-                
-                pipeline.status = ValidationStatus.RUNNING
-                pipeline.started_at = datetime.now()
-                await session.commit()
-            
-            # Send WebSocket update
-            await self.websocket_service.broadcast_validation_update(pipeline_id, {
-                "type": "validation_started",
-                "pipeline_id": pipeline_id,
-                "status": "running"
-            })
-            
-            # Start pipeline execution in background
-            asyncio.create_task(self._execute_pipeline(pipeline_id))
-            
-            logger.info("Validation pipeline started", pipeline_id=pipeline_id)
-            return True
-            
-        except Exception as e:
-            logger.error("Failed to start validation pipeline", 
-                        pipeline_id=pipeline_id, error=str(e))
-            return False
+            await task
+        finally:
+            # Clean up completed task
+            self._active_validations.pop(validation_run_id, None)
     
-    async def _execute_pipeline(self, pipeline_id: int) -> None:
-        """Execute the complete validation pipeline"""
-        try:
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                if not pipeline:
+    async def _run_validation_pipeline(self, validation_run_id: str) -> None:
+        """Run the complete validation pipeline"""
+        async with AsyncSessionLocal() as db:
+            try:
+                # Get validation run and project
+                validation_run = await self._get_validation_run(db, validation_run_id)
+                if not validation_run:
+                    self.logger.error("Validation run not found", validation_run_id=validation_run_id)
                     return
                 
-                project = await session.get(Project, pipeline.project_id)
+                project = await self._get_project(db, validation_run.project_id)
                 if not project:
+                    self.logger.error("Project not found", project_id=validation_run.project_id)
                     return
-            
-            # Execute each step in sequence
-            for step_index in range(7):
-                success = await self._execute_step(pipeline_id, step_index)
-                if not success:
-                    await self._handle_step_failure(pipeline_id, step_index)
-                    break
                 
-                # Send progress update
-                await self.websocket_service.broadcast_validation_update(pipeline_id, {
-                    "type": "validation_step_completed",
-                    "pipeline_id": pipeline_id,
-                    "step_index": step_index,
-                    "status": "completed"
-                })
-            
-            # Complete pipeline
-            await self._complete_pipeline(pipeline_id)
-            
-        except Exception as e:
-            logger.error("Pipeline execution failed", 
-                        pipeline_id=pipeline_id, error=str(e))
-            await self._fail_pipeline(pipeline_id, str(e))
+                # Update status to running
+                validation_run.status = ValidationStatus.RUNNING
+                validation_run.started_at = self._get_timestamp()
+                await db.commit()
+                
+                self.logger.info("Starting validation pipeline",
+                               validation_run_id=validation_run_id,
+                               project_name=project.name,
+                               pr_number=validation_run.pr_number)
+                
+                # Get validation steps
+                steps = await self._get_validation_steps(db, validation_run_id)
+                
+                # Execute each step
+                overall_success = True
+                total_score = 0.0
+                total_weight = 0.0
+                
+                for step in steps:
+                    try:
+                        # Update current step
+                        validation_run.current_step_index = step.step_index
+                        await db.commit()
+                        
+                        # Execute step
+                        step_success = await self._execute_validation_step(
+                            db, validation_run, project, step
+                        )
+                        
+                        if not step_success and step.is_critical:
+                            overall_success = False
+                            self.logger.warning("Critical validation step failed",
+                                              validation_run_id=validation_run_id,
+                                              step_name=step.step_name)
+                            break
+                        
+                        # Update progress
+                        progress = int(((step.step_index + 1) / len(steps)) * 100)
+                        validation_run.progress_percentage = progress
+                        await db.commit()
+                        
+                        # Calculate weighted score
+                        if step.confidence_score is not None:
+                            total_score += step.confidence_score * step.weight
+                            total_weight += step.weight
+                        
+                    except Exception as e:
+                        self.logger.error("Validation step execution failed",
+                                        validation_run_id=validation_run_id,
+                                        step_name=step.step_name,
+                                        error=str(e))
+                        
+                        step.status = ValidationStepStatus.FAILED
+                        step.error_message = str(e)
+                        step.completed_at = self._get_timestamp()
+                        
+                        if step.is_critical:
+                            overall_success = False
+                            break
+                
+                # Calculate final results
+                overall_score = (total_score / total_weight) if total_weight > 0 else 0.0
+                
+                # Update validation run with final results
+                validation_run.status = ValidationStatus.COMPLETED if overall_success else ValidationStatus.FAILED
+                validation_run.completed_at = self._get_timestamp()
+                validation_run.overall_score = overall_score
+                validation_run.progress_percentage = 100
+                
+                # Count step results
+                passed_steps = sum(1 for step in steps if step.status == ValidationStepStatus.COMPLETED)
+                failed_steps = sum(1 for step in steps if step.status == ValidationStepStatus.FAILED)
+                skipped_steps = sum(1 for step in steps if step.status == ValidationStepStatus.SKIPPED)
+                
+                validation_run.passed_steps = passed_steps
+                validation_run.failed_steps = failed_steps
+                validation_run.skipped_steps = skipped_steps
+                
+                # Check auto-merge eligibility
+                if (overall_success and 
+                    project.auto_merge_enabled and 
+                    overall_score >= project.auto_merge_threshold):
+                    
+                    validation_run.auto_merge_eligible = True
+                    
+                    # Execute auto-merge
+                    try:
+                        await self._execute_auto_merge(db, validation_run, project)
+                        validation_run.auto_merge_executed = True
+                        validation_run.auto_merge_reason = f"Score {overall_score:.1f}% >= threshold {project.auto_merge_threshold}%"
+                    except Exception as e:
+                        self.logger.error("Auto-merge failed",
+                                        validation_run_id=validation_run_id,
+                                        error=str(e))
+                        validation_run.auto_merge_reason = f"Auto-merge failed: {str(e)}"
+                
+                await db.commit()
+                
+                self.logger.info("Validation pipeline completed",
+                               validation_run_id=validation_run_id,
+                               status=validation_run.status.value,
+                               overall_score=overall_score,
+                               auto_merge_executed=validation_run.auto_merge_executed)
+                
+            except Exception as e:
+                self.logger.error("Validation pipeline failed",
+                                validation_run_id=validation_run_id,
+                                error=str(e))
+                
+                # Update validation run with error
+                try:
+                    validation_run = await self._get_validation_run(db, validation_run_id)
+                    if validation_run:
+                        validation_run.status = ValidationStatus.FAILED
+                        validation_run.error_message = str(e)
+                        validation_run.completed_at = self._get_timestamp()
+                        await db.commit()
+                except Exception as update_error:
+                    self.logger.error("Failed to update validation run after error",
+                                    validation_run_id=validation_run_id,
+                                    error=str(update_error))
     
-    async def _execute_step(self, pipeline_id: int, step_index: int) -> bool:
-        """Execute a specific validation step"""
-        step_handlers = {
-            0: self._step_snapshot_creation,
-            1: self._step_code_clone,
-            2: self._step_code_analysis,
-            3: self._step_deployment,
-            4: self._step_deployment_validation,
-            5: self._step_ui_testing,
-            6: self._step_auto_merge
-        }
-        
-        handler = step_handlers.get(step_index)
-        if not handler:
-            logger.error("Unknown step index", step_index=step_index)
-            return False
-        
+    async def _execute_validation_step(self,
+                                     db: AsyncSession,
+                                     validation_run: ValidationRun,
+                                     project: Project,
+                                     step: ValidationStep) -> bool:
+        """Execute a single validation step"""
         try:
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                step = pipeline.steps[step_index]
-                
-                step.start_execution()
-                await session.commit()
+            step.status = ValidationStepStatus.RUNNING
+            step.started_at = self._get_timestamp()
+            await db.commit()
             
-            # Execute step
-            success, score, output, error = await handler(pipeline_id)
+            self.logger.info("Executing validation step",
+                           validation_run_id=str(validation_run.id),
+                           step_name=step.step_name,
+                           step_type=step.step_type.value)
             
-            # Update step
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                step = pipeline.steps[step_index]
-                
-                step.complete_execution(success, score, output, error)
-                pipeline.update_progress(step_index, 
-                                       ValidationStatus.COMPLETED if success else ValidationStatus.FAILED,
-                                       score, error)
-                await session.commit()
+            success = False
             
-            logger.info("Validation step completed", 
-                       pipeline_id=pipeline_id,
-                       step_index=step_index,
-                       success=success,
-                       score=score)
+            if step.step_type == ValidationStepType.SNAPSHOT_CREATION:
+                success = await self._execute_snapshot_creation(db, validation_run, project, step)
+            
+            elif step.step_type == ValidationStepType.CODE_CLONE:
+                success = await self._execute_code_clone(db, validation_run, project, step)
+            
+            elif step.step_type == ValidationStepType.CODE_ANALYSIS:
+                success = await self._execute_code_analysis(db, validation_run, project, step)
+            
+            elif step.step_type == ValidationStepType.DEPLOYMENT:
+                success = await self._execute_deployment(db, validation_run, project, step)
+            
+            elif step.step_type == ValidationStepType.DEPLOYMENT_VALIDATION:
+                success = await self._execute_deployment_validation(db, validation_run, project, step)
+            
+            elif step.step_type == ValidationStepType.UI_TESTING:
+                success = await self._execute_ui_testing(db, validation_run, project, step)
+            
+            elif step.step_type == ValidationStepType.AUTO_MERGE:
+                success = await self._execute_auto_merge_check(db, validation_run, project, step)
+            
+            else:
+                self.logger.warning("Unknown validation step type",
+                                  step_type=step.step_type.value)
+                success = False
+            
+            # Update step status
+            step.status = ValidationStepStatus.COMPLETED if success else ValidationStepStatus.FAILED
+            step.completed_at = self._get_timestamp()
+            
+            if step.started_at:
+                start_time = datetime.fromisoformat(step.started_at.replace('Z', '+00:00'))
+                end_time = datetime.fromisoformat(step.completed_at.replace('Z', '+00:00'))
+                step.duration_seconds = int((end_time - start_time).total_seconds())
+            
+            await db.commit()
             
             return success
             
         except Exception as e:
-            logger.error("Step execution failed", 
-                        pipeline_id=pipeline_id,
-                        step_index=step_index,
-                        error=str(e))
+            self.logger.error("Validation step execution failed",
+                            step_name=step.step_name,
+                            error=str(e))
+            
+            step.status = ValidationStepStatus.FAILED
+            step.error_message = str(e)
+            step.completed_at = self._get_timestamp()
+            await db.commit()
+            
             return False
     
-    async def _step_snapshot_creation(self, pipeline_id: int) -> Tuple[bool, Optional[float], Optional[str], Optional[str]]:
-        """Step 1: Create sandbox environment with grainchain + web-eval-agent + graph-sitter"""
-        if not self.grainchain_client:
-            return False, 0.0, None, "Grainchain not enabled"
-        
+    async def _execute_snapshot_creation(self,
+                                       db: AsyncSession,
+                                       validation_run: ValidationRun,
+                                       project: Project,
+                                       step: ValidationStep) -> bool:
+        """Execute snapshot creation step using grainchain"""
         try:
-            # Create grainchain workspace
-            workspace_config = {
-                "tools": ["web-eval-agent", "graph-sitter"],
-                "environment": {
-                    "GEMINI_API_KEY": settings.gemini_api_key,
-                    "GITHUB_TOKEN": settings.github_token
-                }
-            }
+            if not project.grainchain_enabled:
+                step.logs = "Grainchain disabled for project"
+                step.confidence_score = 100.0
+                return True
             
-            workspace = await self.grainchain_client.create_workspace(
-                name=f"validation-{pipeline_id}",
-                config=workspace_config
-            )
-            
-            if workspace and workspace.get("status") == "ready":
-                return True, 100.0, f"Workspace created: {workspace.get('id')}", None
-            else:
-                return False, 0.0, None, "Failed to create workspace"
-                
-        except Exception as e:
-            return False, 0.0, None, str(e)
-    
-    async def _step_code_clone(self, pipeline_id: int) -> Tuple[bool, Optional[float], Optional[str], Optional[str]]:
-        """Step 2: Clone PR branch to sandbox environment"""
-        try:
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                project = await session.get(Project, pipeline.project_id)
-            
-            # Clone repository using GitHub client
-            clone_result = await self.github_client.clone_repository(
-                owner=project.github_owner,
-                repo=project.github_repo,
-                branch=pipeline.pr_branch,
-                workspace_id=f"validation-{pipeline_id}"
-            )
-            
-            if clone_result.get("success"):
-                return True, 100.0, f"Repository cloned to {clone_result.get('path')}", None
-            else:
-                return False, 0.0, None, clone_result.get("error", "Clone failed")
-                
-        except Exception as e:
-            return False, 0.0, None, str(e)
-    
-    async def _step_code_analysis(self, pipeline_id: int) -> Tuple[bool, Optional[float], Optional[str], Optional[str]]:
-        """Step 3: Analyze code quality using graph-sitter"""
-        if not self.graph_sitter_client:
-            return True, 85.0, "Code analysis skipped (graph-sitter not enabled)", None
-        
-        try:
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                project = await session.get(Project, pipeline.project_id)
-            
-            # Analyze code quality
-            analysis_result = await self.graph_sitter_client.analyze_repository(
-                workspace_id=f"validation-{pipeline_id}",
-                languages=settings.graph_sitter_languages,
-                config={
-                    "max_file_size": settings.graph_sitter_max_file_size,
-                    "timeout": settings.graph_sitter_analysis_timeout
-                }
-            )
-            
-            if analysis_result.get("success"):
-                score = analysis_result.get("quality_score", 85.0)
-                summary = analysis_result.get("summary", "Code analysis completed")
-                return True, score, summary, None
-            else:
-                return False, 0.0, None, analysis_result.get("error", "Analysis failed")
-                
-        except Exception as e:
-            return False, 0.0, None, str(e)
-    
-    async def _step_deployment(self, pipeline_id: int) -> Tuple[bool, Optional[float], Optional[str], Optional[str]]:
-        """Step 4: Execute setup commands and deploy application"""
-        try:
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                project = await session.get(Project, pipeline.project_id)
-            
-            if not project.setup_commands:
-                return True, 90.0, "No setup commands configured", None
-            
-            # Execute setup commands in grainchain workspace
-            if self.grainchain_client:
-                execution_result = await self.grainchain_client.execute_commands(
-                    workspace_id=f"validation-{pipeline_id}",
-                    commands=project.setup_commands.split('\n'),
-                    timeout=settings.validation_timeout
+            async with GrainchainClient() as client:
+                # Create sandbox snapshot
+                snapshot_result = await client.create_snapshot(
+                    project_name=project.name,
+                    github_url=project.github_url,
+                    branch=validation_run.pr_branch
                 )
                 
-                if execution_result.get("success"):
-                    return True, 95.0, execution_result.get("output", "Deployment successful"), None
-                else:
-                    return False, 0.0, None, execution_result.get("error", "Deployment failed")
-            else:
-                return True, 80.0, "Deployment skipped (grainchain not enabled)", None
+                validation_run.grainchain_snapshot_id = snapshot_result.get("snapshot_id")
+                step.external_service_id = snapshot_result.get("snapshot_id")
+                step.confidence_score = 95.0
+                step.logs = f"Snapshot created: {snapshot_result.get('snapshot_id')}"
+                
+                await db.commit()
+                
+                return True
                 
         except Exception as e:
-            return False, 0.0, None, str(e)
+            step.logs = f"Snapshot creation failed: {str(e)}"
+            return False
     
-    async def _step_deployment_validation(self, pipeline_id: int) -> Tuple[bool, Optional[float], Optional[str], Optional[str]]:
-        """Step 5: Validate deployment success using Gemini API"""
+    async def _execute_code_clone(self,
+                                db: AsyncSession,
+                                validation_run: ValidationRun,
+                                project: Project,
+                                step: ValidationStep) -> bool:
+        """Execute code clone step"""
         try:
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                project = await session.get(Project, pipeline.project_id)
+            if not validation_run.grainchain_snapshot_id:
+                step.logs = "No snapshot available for code clone"
+                return False
             
-            # Get deployment logs and context
-            deployment_context = {
-                "project_name": project.name,
-                "setup_commands": project.setup_commands,
-                "pr_branch": pipeline.pr_branch
-            }
+            async with GrainchainClient() as client:
+                # Clone PR branch to sandbox
+                clone_result = await client.clone_repository(
+                    snapshot_id=validation_run.grainchain_snapshot_id,
+                    repository_url=project.github_url,
+                    branch=validation_run.pr_branch,
+                    commit_sha=validation_run.pr_commit_sha
+                )
+                
+                step.confidence_score = 95.0
+                step.logs = f"Code cloned successfully: {clone_result.get('status')}"
+                
+                return True
+                
+        except Exception as e:
+            step.logs = f"Code clone failed: {str(e)}"
+            return False
+    
+    async def _execute_code_analysis(self,
+                                   db: AsyncSession,
+                                   validation_run: ValidationRun,
+                                   project: Project,
+                                   step: ValidationStep) -> bool:
+        """Execute code analysis step using graph-sitter"""
+        try:
+            if not project.graph_sitter_enabled:
+                step.logs = "Graph-sitter disabled for project"
+                step.confidence_score = 100.0
+                return True
             
-            # Use Gemini to validate deployment
-            validation_prompt = f"""
-            Analyze the deployment of project '{project.name}' and determine if it was successful.
+            async with GraphSitterClient() as client:
+                # Run code quality analysis
+                analysis_result = await client.analyze_code_quality(
+                    snapshot_id=validation_run.grainchain_snapshot_id,
+                    project_path=f"/workspace/{project.name}"
+                )
+                
+                # Use Gemini to analyze results
+                async with GeminiClient() as gemini:
+                    ai_analysis = await gemini.analyze_code_quality(
+                        code_analysis_results=analysis_result,
+                        project_context=f"Project: {project.name}, PR: #{validation_run.pr_number}"
+                    )
+                
+                step.confidence_score = ai_analysis.get("overall_score", 75.0)
+                step.logs = f"Code analysis completed. Score: {step.confidence_score}%"
+                
+                # Store detailed results
+                await self._store_validation_result(
+                    db, validation_run.id, "code_analysis", "quality_score", 
+                    ai_analysis.get("overall_score", 75.0), ai_analysis
+                )
+                
+                return True
+                
+        except Exception as e:
+            step.logs = f"Code analysis failed: {str(e)}"
+            return False
+    
+    async def _execute_deployment(self,
+                                db: AsyncSession,
+                                validation_run: ValidationRun,
+                                project: Project,
+                                step: ValidationStep) -> bool:
+        """Execute deployment step"""
+        try:
+            if not validation_run.grainchain_snapshot_id:
+                step.logs = "No snapshot available for deployment"
+                return False
             
-            Setup commands executed:
-            {project.setup_commands or 'None'}
+            async with GrainchainClient() as client:
+                # Get project setup commands
+                setup_commands = await self._get_project_setup_commands(db, project.id)
+                
+                # Execute deployment
+                deployment_result = await client.execute_deployment(
+                    snapshot_id=validation_run.grainchain_snapshot_id,
+                    setup_commands=setup_commands,
+                    project_path=f"/workspace/{project.name}"
+                )
+                
+                step.confidence_score = 90.0 if deployment_result.get("success") else 0.0
+                step.logs = deployment_result.get("logs", "Deployment executed")
+                
+                return deployment_result.get("success", False)
+                
+        except Exception as e:
+            step.logs = f"Deployment failed: {str(e)}"
+            return False
+    
+    async def _execute_deployment_validation(self,
+                                           db: AsyncSession,
+                                           validation_run: ValidationRun,
+                                           project: Project,
+                                           step: ValidationStep) -> bool:
+        """Execute deployment validation step using Gemini AI"""
+        try:
+            if not validation_run.grainchain_snapshot_id:
+                step.logs = "No snapshot available for deployment validation"
+                return False
             
-            Please provide:
-            1. Success status (true/false)
-            2. Confidence score (0-100)
-            3. Summary of findings
-            4. Any issues or recommendations
-            """
+            async with GrainchainClient() as client:
+                # Get deployment logs
+                logs = await client.get_deployment_logs(
+                    snapshot_id=validation_run.grainchain_snapshot_id
+                )
             
-            validation_result = await self.gemini_client.analyze_deployment(
-                prompt=validation_prompt,
-                context=deployment_context
+            # Use Gemini to analyze deployment success
+            async with GeminiClient() as gemini:
+                analysis = await gemini.analyze_deployment_logs(
+                    logs=logs,
+                    project_context=f"Project: {project.name}, PR: #{validation_run.pr_number}"
+                )
+            
+            step.confidence_score = analysis.get("confidence_score", 50.0)
+            step.logs = f"Deployment validation: {analysis.get('status')} - {analysis.get('summary')}"
+            
+            # Store detailed results
+            await self._store_validation_result(
+                db, validation_run.id, "deployment_validation", "analysis", 
+                analysis.get("confidence_score", 50.0), analysis
             )
             
-            if validation_result.get("success"):
-                score = validation_result.get("confidence_score", 85.0)
-                summary = validation_result.get("summary", "Deployment validation completed")
-                return True, score, summary, None
-            else:
-                return False, 0.0, None, validation_result.get("error", "Validation failed")
-                
+            return analysis.get("status") == "success"
+            
         except Exception as e:
-            return False, 0.0, None, str(e)
+            step.logs = f"Deployment validation failed: {str(e)}"
+            return False
     
-    async def _step_ui_testing(self, pipeline_id: int) -> Tuple[bool, Optional[float], Optional[str], Optional[str]]:
-        """Step 6: Run comprehensive UI tests with web-eval-agent"""
-        if not self.web_eval_client:
-            return True, 80.0, "UI testing skipped (web-eval-agent not enabled)", None
-        
+    async def _execute_ui_testing(self,
+                                db: AsyncSession,
+                                validation_run: ValidationRun,
+                                project: Project,
+                                step: ValidationStep) -> bool:
+        """Execute UI testing step using web-eval-agent"""
         try:
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                project = await session.get(Project, pipeline.project_id)
+            if not project.web_eval_enabled:
+                step.logs = "Web-eval-agent disabled for project"
+                step.confidence_score = 100.0
+                return True
             
-            # Run comprehensive UI tests
-            test_config = {
-                "browser": settings.web_eval_browser,
-                "headless": settings.web_eval_headless,
-                "timeout": settings.web_eval_timeout,
-                "viewport": {
-                    "width": settings.web_eval_viewport_width,
-                    "height": settings.web_eval_viewport_height
-                }
-            }
+            async with WebEvalClient() as client:
+                # Run UI tests
+                test_result = await client.run_ui_tests(
+                    snapshot_id=validation_run.grainchain_snapshot_id,
+                    base_url=f"http://localhost:8000",  # Assuming standard port
+                    test_scenarios=await self._get_ui_test_scenarios(db, project.id)
+                )
+                
+                validation_run.web_eval_session_id = test_result.get("session_id")
+                step.external_service_id = test_result.get("session_id")
             
-            test_result = await self.web_eval_client.run_comprehensive_tests(
-                workspace_id=f"validation-{pipeline_id}",
-                config=test_config
+            # Use Gemini to analyze UI test results
+            async with GeminiClient() as gemini:
+                analysis = await gemini.analyze_ui_test_results(
+                    test_results=test_result,
+                    project_context=f"Project: {project.name}, PR: #{validation_run.pr_number}"
+                )
+            
+            step.confidence_score = analysis.get("overall_score", 75.0)
+            step.logs = f"UI testing completed. Score: {step.confidence_score}%"
+            
+            # Store detailed results
+            await self._store_validation_result(
+                db, validation_run.id, "ui_testing", "test_results", 
+                analysis.get("overall_score", 75.0), analysis
             )
             
-            if test_result.get("success"):
-                score = test_result.get("overall_score", 85.0)
-                summary = test_result.get("summary", "UI testing completed")
-                
-                # Store test artifacts
-                async with get_db_session() as session:
-                    pipeline = await session.get(ValidationPipeline, pipeline_id)
-                    pipeline.set_artifact("ui_test_results", test_result)
-                    await session.commit()
-                
-                return True, score, summary, None
-            else:
-                return False, 0.0, None, test_result.get("error", "UI testing failed")
-                
-        except Exception as e:
-            return False, 0.0, None, str(e)
-    
-    async def _step_auto_merge(self, pipeline_id: int) -> Tuple[bool, Optional[float], Optional[str], Optional[str]]:
-        """Step 7: Auto-merge PR if validation passes and auto-merge is enabled"""
-        try:
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                project = await session.get(Project, pipeline.project_id)
-            
-            if not pipeline.can_auto_merge:
-                return True, 100.0, "Auto-merge not enabled or conditions not met", None
-            
-            # Merge PR using GitHub client
-            merge_result = await self.github_client.merge_pull_request(
-                owner=project.github_owner,
-                repo=project.github_repo,
-                pr_number=pipeline.pr_number,
-                merge_method="squash"  # or "merge", "rebase"
-            )
-            
-            if merge_result.get("success"):
-                pipeline.merge_completed = True
-                pipeline.merge_url = merge_result.get("merge_commit_url")
-                await session.commit()
-                
-                return True, 100.0, f"PR merged successfully: {merge_result.get('merge_commit_sha')}", None
-            else:
-                return False, 0.0, None, merge_result.get("error", "Merge failed")
-                
-        except Exception as e:
-            return False, 0.0, None, str(e)
-    
-    async def _handle_step_failure(self, pipeline_id: int, step_index: int) -> None:
-        """Handle step failure with retry logic and error context integration"""
-        try:
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                step = pipeline.steps[step_index]
-                
-                if step.can_retry:
-                    step.retry_count += 1
-                    await session.commit()
-                    
-                    logger.info("Retrying failed step", 
-                               pipeline_id=pipeline_id,
-                               step_index=step_index,
-                               retry_count=step.retry_count)
-                    
-                    # Retry the step
-                    success = await self._execute_step(pipeline_id, step_index)
-                    if success:
-                        return
-                
-                # If retry failed or no retries left, send error context to Codegen API
-                if pipeline.agent_run_id:
-                    await self._send_error_context_to_codegen(pipeline_id, step_index)
-                
-                # Fail the pipeline
-                await self._fail_pipeline(pipeline_id, f"Step {step_index} failed after retries")
-                
-        except Exception as e:
-            logger.error("Error handling step failure", 
-                        pipeline_id=pipeline_id,
-                        step_index=step_index,
-                        error=str(e))
-    
-    async def _send_error_context_to_codegen(self, pipeline_id: int, step_index: int) -> None:
-        """Send error context to Codegen API for automatic fixes"""
-        try:
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                step = pipeline.steps[step_index]
-                agent_run = await session.get(AgentRun, pipeline.agent_run_id)
-            
-            if not agent_run:
-                return
-            
-            # Prepare error context
-            error_context = {
-                "step_name": step.name,
-                "step_type": step.step_type.value,
-                "error_message": step.error_output,
-                "command_output": step.output,
-                "validation_logs": pipeline.logs,
-                "project_setup_commands": agent_run.project.setup_commands
-            }
-            
-            # Create continuation prompt
-            continuation_prompt = f"""
-            The validation pipeline failed at step "{step.name}" with the following error:
-            
-            Error: {step.error_output}
-            
-            Command output: {step.output}
-            
-            Please analyze the error and update the PR with code changes to resolve this issue.
-            Focus on fixing the specific problem that caused the validation to fail.
-            """
-            
-            # Continue the agent run with error context
-            from backend.integrations.codegen_client import continue_agent_run
-            await continue_agent_run(
-                task_id=str(agent_run.codegen_run_id),
-                prompt=continuation_prompt,
-                context=error_context
-            )
-            
-            logger.info("Error context sent to Codegen API", 
-                       pipeline_id=pipeline_id,
-                       agent_run_id=agent_run.id)
+            return analysis.get("test_status") != "failed"
             
         except Exception as e:
-            logger.error("Failed to send error context to Codegen", 
-                        pipeline_id=pipeline_id, error=str(e))
+            step.logs = f"UI testing failed: {str(e)}"
+            return False
     
-    async def _complete_pipeline(self, pipeline_id: int) -> None:
-        """Complete the validation pipeline"""
+    async def _execute_auto_merge_check(self,
+                                      db: AsyncSession,
+                                      validation_run: ValidationRun,
+                                      project: Project,
+                                      step: ValidationStep) -> bool:
+        """Execute auto-merge eligibility check"""
         try:
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                
-                pipeline.status = ValidationStatus.COMPLETED
-                pipeline.completed_at = datetime.now()
-                
-                if pipeline.started_at:
-                    duration = datetime.now() - pipeline.started_at
-                    pipeline.duration_seconds = int(duration.total_seconds())
-                
-                await session.commit()
+            if not project.auto_merge_enabled:
+                step.logs = "Auto-merge disabled for project"
+                step.confidence_score = 100.0
+                return True
             
-            # Send completion notification
-            await self.websocket_service.broadcast_validation_update(pipeline_id, {
-                "type": "validation_completed",
-                "pipeline_id": pipeline_id,
-                "status": "completed",
-                "overall_score": pipeline.overall_score,
-                "can_auto_merge": pipeline.can_auto_merge
-            })
+            # This step just checks eligibility - actual merge happens later
+            step.confidence_score = 100.0
+            step.logs = f"Auto-merge check completed. Threshold: {project.auto_merge_threshold}%"
             
-            logger.info("Validation pipeline completed", 
-                       pipeline_id=pipeline_id,
-                       overall_score=pipeline.overall_score)
-            
-        except Exception as e:
-            logger.error("Failed to complete pipeline", 
-                        pipeline_id=pipeline_id, error=str(e))
-    
-    async def _fail_pipeline(self, pipeline_id: int, error_message: str) -> None:
-        """Fail the validation pipeline"""
-        try:
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                
-                pipeline.status = ValidationStatus.FAILED
-                pipeline.error_message = error_message
-                pipeline.completed_at = datetime.now()
-                
-                if pipeline.started_at:
-                    duration = datetime.now() - pipeline.started_at
-                    pipeline.duration_seconds = int(duration.total_seconds())
-                
-                await session.commit()
-            
-            # Send failure notification
-            await self.websocket_service.broadcast_validation_update(pipeline_id, {
-                "type": "validation_failed",
-                "pipeline_id": pipeline_id,
-                "status": "failed",
-                "error_message": error_message
-            })
-            
-            logger.error("Validation pipeline failed", 
-                        pipeline_id=pipeline_id,
-                        error=error_message)
-            
-        except Exception as e:
-            logger.error("Failed to fail pipeline", 
-                        pipeline_id=pipeline_id, error=str(e))
-    
-    async def get_pipeline_status(self, pipeline_id: int) -> Optional[Dict[str, Any]]:
-        """Get validation pipeline status"""
-        try:
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                if not pipeline:
-                    return None
-                
-                return pipeline.to_dict(include_steps=True, include_logs=True)
-                
-        except Exception as e:
-            logger.error("Failed to get pipeline status", 
-                        pipeline_id=pipeline_id, error=str(e))
-            return None
-    
-    async def cancel_pipeline(self, pipeline_id: int) -> bool:
-        """Cancel a running validation pipeline"""
-        try:
-            async with get_db_session() as session:
-                pipeline = await session.get(ValidationPipeline, pipeline_id)
-                if not pipeline or not pipeline.is_running:
-                    return False
-                
-                pipeline.status = ValidationStatus.CANCELLED
-                pipeline.completed_at = datetime.now()
-                await session.commit()
-            
-            # Clean up grainchain workspace
-            if self.grainchain_client:
-                await self.grainchain_client.cleanup_workspace(f"validation-{pipeline_id}")
-            
-            logger.info("Validation pipeline cancelled", pipeline_id=pipeline_id)
             return True
             
         except Exception as e:
-            logger.error("Failed to cancel pipeline", 
-                        pipeline_id=pipeline_id, error=str(e))
+            step.logs = f"Auto-merge check failed: {str(e)}"
             return False
+    
+    async def _execute_auto_merge(self,
+                                db: AsyncSession,
+                                validation_run: ValidationRun,
+                                project: Project) -> None:
+        """Execute auto-merge of the PR"""
+        try:
+            async with GitHubClient() as client:
+                # Merge the PR
+                merge_result = await client.merge_pull_request(
+                    owner=project.github_owner,
+                    repo=project.github_repo,
+                    pr_number=validation_run.pr_number,
+                    commit_title=f"Auto-merge PR #{validation_run.pr_number} (validation score: {validation_run.overall_score:.1f}%)",
+                    merge_method="merge"
+                )
+                
+                self.logger.info("PR auto-merged successfully",
+                               validation_run_id=str(validation_run.id),
+                               pr_number=validation_run.pr_number,
+                               merge_sha=merge_result.get("sha"))
+                
+        except Exception as e:
+            self.logger.error("Auto-merge failed",
+                            validation_run_id=str(validation_run.id),
+                            pr_number=validation_run.pr_number,
+                            error=str(e))
+            raise
+    
+    # Helper methods
+    async def _get_validation_run(self, db: AsyncSession, validation_run_id: str) -> Optional[ValidationRun]:
+        """Get validation run by ID"""
+        query = select(ValidationRun).where(ValidationRun.id == validation_run_id)
+        result = await db.execute(query)
+        return result.scalar_one_or_none()
+    
+    async def _get_project(self, db: AsyncSession, project_id: str) -> Optional[Project]:
+        """Get project by ID"""
+        query = select(Project).where(Project.id == project_id)
+        result = await db.execute(query)
+        return result.scalar_one_or_none()
+    
+    async def _get_validation_steps(self, db: AsyncSession, validation_run_id: str) -> List[ValidationStep]:
+        """Get validation steps for a run"""
+        query = select(ValidationStep).where(
+            ValidationStep.validation_run_id == validation_run_id
+        ).order_by(ValidationStep.step_index)
+        result = await db.execute(query)
+        return result.scalars().all()
+    
+    async def _get_project_setup_commands(self, db: AsyncSession, project_id: str) -> List[str]:
+        """Get setup commands for a project"""
+        # TODO: Get from project configurations
+        return [
+            "npm install",
+            "npm run build",
+            "npm start &"
+        ]
+    
+    async def _get_ui_test_scenarios(self, db: AsyncSession, project_id: str) -> List[Dict[str, Any]]:
+        """Get UI test scenarios for a project"""
+        # TODO: Get from project configurations
+        return [
+            {
+                "name": "Homepage Load Test",
+                "url": "/",
+                "checks": ["page_loads", "no_errors", "responsive"]
+            },
+            {
+                "name": "Navigation Test",
+                "url": "/",
+                "checks": ["navigation_works", "links_functional"]
+            }
+        ]
+    
+    async def _store_validation_result(self,
+                                     db: AsyncSession,
+                                     validation_run_id: str,
+                                     result_type: str,
+                                     result_name: str,
+                                     score: float,
+                                     data: Dict[str, Any]) -> None:
+        """Store validation result"""
+        result = ValidationResult(
+            validation_run_id=validation_run_id,
+            result_type=result_type,
+            result_name=result_name,
+            score=score,
+            data=data
+        )
+        
+        db.add(result)
+        await db.commit()
+    
+    def _get_timestamp(self) -> str:
+        """Get current timestamp in ISO format"""
+        return datetime.utcnow().isoformat() + "Z"
+    
+    async def health_check(self) -> Dict[str, Any]:
+        """Health check for validation service"""
+        base_health = await super().health_check()
+        base_health.update({
+            "active_validations": len(self._active_validations),
+            "validation_enabled": settings.is_feature_enabled("validation_pipeline")
+        })
+        return base_health
 
