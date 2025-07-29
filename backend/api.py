@@ -1187,5 +1187,524 @@ def main():
     print("\n=== Complete! ===")
 
 
+# ============================================================================
+# ENHANCED CLIENT METHODS - ADDITIONAL ENDPOINTS
+# ============================================================================
+
+# Add these methods to the CodegenClient class
+def _add_enhanced_methods_to_client():
+    """Add enhanced methods to the CodegenClient class"""
+    
+    def get_user(self, org_id: str, user_id: str) -> UserResponse:
+        """Get details for a specific user in an organization"""
+        response = self._make_request(
+            "GET", f"/organizations/{org_id}/users/{user_id}", use_cache=True
+        )
+        return UserResponse(
+            id=response.get("id", 0),
+            email=response.get("email"),
+            github_user_id=response.get("github_user_id", ""),
+            github_username=response.get("github_username", ""),
+            avatar_url=response.get("avatar_url"),
+            full_name=response.get("full_name"),
+        )
+
+    @lru_cache(maxsize=32)
+    def get_user_cached(self, org_id: str, user_id: str) -> UserResponse:
+        """Cached version of get_user for frequently accessed users"""
+        return self.get_user(org_id, user_id)
+
+    def list_agent_runs(
+        self,
+        org_id: int,
+        user_id: Optional[int] = None,
+        source_type: Optional[SourceType] = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> AgentRunsResponse:
+        """List agent runs for an organization with optional filtering"""
+        self._validate_pagination(skip, limit)
+
+        params = {"skip": skip, "limit": limit}
+        if user_id:
+            params["user_id"] = user_id
+        if source_type:
+            params["source_type"] = source_type.value
+
+        response = self._make_request(
+            "GET", f"/organizations/{org_id}/agent/runs", params=params, use_cache=True
+        )
+
+        return AgentRunsResponse(
+            items=[self._parse_agent_run_response(run) for run in response["items"]],
+            total=response["total"],
+            page=response["page"],
+            size=response["size"],
+            pages=response["pages"],
+        )
+
+    def resume_agent_run(
+        self,
+        org_id: int,
+        agent_run_id: int,
+        prompt: str,
+        images: Optional[List[str]] = None,
+    ) -> AgentRunResponse:
+        """Resume a paused agent run"""
+        if not prompt or len(prompt.strip()) == 0:
+            raise ValidationError("Prompt cannot be empty")
+
+        data = {"agent_run_id": agent_run_id, "prompt": prompt, "images": images}
+
+        response = self._make_request(
+            "POST", f"/organizations/{org_id}/agent/run/resume", json=data
+        )
+
+        return self._parse_agent_run_response(response)
+
+    def get_agent_run_logs(
+        self, org_id: int, agent_run_id: int, skip: int = 0, limit: int = 100
+    ) -> AgentRunWithLogsResponse:
+        """Retrieve an agent run with its logs using pagination (ALPHA)"""
+        self._validate_pagination(skip, limit)
+
+        response = self._make_request(
+            "GET",
+            f"/organizations/{org_id}/agent/run/{agent_run_id}/logs",
+            params={"skip": skip, "limit": limit},
+            use_cache=True,
+        )
+
+        return AgentRunWithLogsResponse(
+            id=response["id"],
+            organization_id=response["organization_id"],
+            logs=[
+                AgentRunLogResponse(
+                    agent_run_id=log.get("agent_run_id", 0),
+                    created_at=log.get("created_at", ""),
+                    message_type=log.get("message_type", ""),
+                    thought=log.get("thought"),
+                    tool_name=log.get("tool_name"),
+                    tool_input=log.get("tool_input"),
+                    tool_output=log.get("tool_output"),
+                    observation=log.get("observation"),
+                )
+                for log in response["logs"]
+            ],
+            status=response.get("status"),
+            created_at=response.get("created_at"),
+            web_url=response.get("web_url"),
+            result=response.get("result"),
+            metadata=response.get("metadata"),
+            total_logs=response.get("total_logs"),
+            page=response.get("page"),
+            size=response.get("size"),
+            pages=response.get("pages"),
+        )
+
+    # Bulk operations methods
+    def bulk_get_users(
+        self,
+        org_id: str,
+        user_ids: List[str],
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+    ) -> BulkOperationResult:
+        """Fetch multiple users concurrently"""
+        if not self.bulk_manager:
+            raise BulkOperationError("Bulk operations are disabled")
+
+        return self.bulk_manager.execute_bulk_operation(
+            self.get_user, user_ids, progress_callback, org_id
+        )
+
+    def bulk_create_agent_runs(
+        self,
+        org_id: int,
+        run_configs: List[Dict[str, Any]],
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+    ) -> BulkOperationResult:
+        """Create multiple agent runs concurrently"""
+        if not self.bulk_manager:
+            raise BulkOperationError("Bulk operations are disabled")
+
+        def create_run(config):
+            return self.create_agent_run(
+                org_id=org_id,
+                prompt=config["prompt"],
+                images=config.get("images"),
+                metadata=config.get("metadata"),
+            )
+
+        return self.bulk_manager.execute_bulk_operation(
+            create_run, run_configs, progress_callback
+        )
+
+    def bulk_get_agent_runs(
+        self,
+        org_id: int,
+        agent_run_ids: List[int],
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+    ) -> BulkOperationResult:
+        """Fetch multiple agent runs concurrently"""
+        if not self.bulk_manager:
+            raise BulkOperationError("Bulk operations are disabled")
+
+        return self.bulk_manager.execute_bulk_operation(
+            self.get_agent_run, agent_run_ids, progress_callback, org_id
+        )
+
+    # Streaming methods
+    def stream_all_users(self, org_id: str) -> Iterator[UserResponse]:
+        """Stream all users with automatic pagination"""
+        if not self.config.enable_streaming:
+            raise ValidationError("Streaming is disabled")
+
+        skip = 0
+        while True:
+            response = self.get_users(org_id, skip=skip, limit=100)
+            for user in response.items:
+                yield user
+
+            if len(response.items) < 100:
+                break
+            skip += 100
+
+    def stream_all_agent_runs(
+        self,
+        org_id: int,
+        user_id: Optional[int] = None,
+        source_type: Optional[SourceType] = None,
+    ) -> Iterator[AgentRunResponse]:
+        """Stream all agent runs with automatic pagination"""
+        if not self.config.enable_streaming:
+            raise ValidationError("Streaming is disabled")
+
+        skip = 0
+        while True:
+            response = self.list_agent_runs(
+                org_id, user_id=user_id, source_type=source_type, skip=skip, limit=100
+            )
+            for run in response.items:
+                yield run
+
+            if len(response.items) < 100:
+                break
+            skip += 100
+
+    def stream_all_logs(
+        self, org_id: int, agent_run_id: int
+    ) -> Iterator[AgentRunLogResponse]:
+        """Stream all logs with automatic pagination"""
+        if not self.config.enable_streaming:
+            raise ValidationError("Streaming is disabled")
+
+        skip = 0
+        while True:
+            response = self.get_agent_run_logs(
+                org_id, agent_run_id, skip=skip, limit=100
+            )
+            for log in response.logs:
+                yield log
+
+            if len(response.logs) < 100:
+                break
+            skip += 100
+
+    # Add methods to CodegenClient
+    CodegenClient.get_user = get_user
+    CodegenClient.get_user_cached = get_user_cached
+    CodegenClient.list_agent_runs = list_agent_runs
+    CodegenClient.resume_agent_run = resume_agent_run
+    CodegenClient.get_agent_run_logs = get_agent_run_logs
+    CodegenClient.bulk_get_users = bulk_get_users
+    CodegenClient.bulk_create_agent_runs = bulk_create_agent_runs
+    CodegenClient.bulk_get_agent_runs = bulk_get_agent_runs
+    CodegenClient.stream_all_users = stream_all_users
+    CodegenClient.stream_all_agent_runs = stream_all_agent_runs
+    CodegenClient.stream_all_logs = stream_all_logs
+
+# Apply the enhanced methods
+_add_enhanced_methods_to_client()
+
+
+# ============================================================================
+# ENHANCED ASYNC CLIENT METHODS
+# ============================================================================
+
+if AIOHTTP_AVAILABLE:
+    def _add_enhanced_async_methods():
+        """Add enhanced async methods to AsyncCodegenClient"""
+        
+        async def list_agent_runs(
+            self,
+            org_id: int,
+            user_id: Optional[int] = None,
+            source_type: Optional[SourceType] = None,
+            skip: int = 0,
+            limit: int = 100,
+        ) -> AgentRunsResponse:
+            """List agent runs for an organization with optional filtering"""
+            params = {"skip": skip, "limit": limit}
+            if user_id:
+                params["user_id"] = user_id
+            if source_type:
+                params["source_type"] = source_type.value
+
+            response = await self._make_request(
+                "GET", f"/organizations/{org_id}/agent/runs", params=params, use_cache=True
+            )
+
+            return AgentRunsResponse(
+                items=[
+                    AgentRunResponse(
+                        id=run["id"],
+                        organization_id=run["organization_id"],
+                        status=run.get("status"),
+                        created_at=run.get("created_at"),
+                        web_url=run.get("web_url"),
+                        result=run.get("result"),
+                        source_type=SourceType(run["source_type"])
+                        if run.get("source_type")
+                        else None,
+                        github_pull_requests=[],
+                        metadata=run.get("metadata"),
+                    )
+                    for run in response["items"]
+                ],
+                total=response["total"],
+                page=response["page"],
+                size=response["size"],
+                pages=response["pages"],
+            )
+
+        async def resume_agent_run(
+            self,
+            org_id: int,
+            agent_run_id: int,
+            prompt: str,
+            images: Optional[List[str]] = None,
+        ) -> AgentRunResponse:
+            """Resume a paused agent run"""
+            if not prompt or len(prompt.strip()) == 0:
+                raise ValidationError("Prompt cannot be empty")
+
+            data = {"agent_run_id": agent_run_id, "prompt": prompt, "images": images}
+
+            response = await self._make_request(
+                "POST", f"/organizations/{org_id}/agent/run/resume", json=data
+            )
+
+            return AgentRunResponse(
+                id=response["id"],
+                organization_id=response["organization_id"],
+                status=response.get("status"),
+                created_at=response.get("created_at"),
+                web_url=response.get("web_url"),
+                result=response.get("result"),
+                source_type=SourceType(response["source_type"])
+                if response.get("source_type")
+                else None,
+                github_pull_requests=[],
+                metadata=response.get("metadata"),
+            )
+
+        async def get_agent_run_logs(
+            self, org_id: int, agent_run_id: int, skip: int = 0, limit: int = 100
+        ) -> AgentRunWithLogsResponse:
+            """Retrieve an agent run with its logs using pagination (ALPHA)"""
+            response = await self._make_request(
+                "GET",
+                f"/organizations/{org_id}/agent/run/{agent_run_id}/logs",
+                params={"skip": skip, "limit": limit},
+                use_cache=True,
+            )
+
+            return AgentRunWithLogsResponse(
+                id=response["id"],
+                organization_id=response["organization_id"],
+                logs=[
+                    AgentRunLogResponse(
+                        agent_run_id=log.get("agent_run_id", 0),
+                        created_at=log.get("created_at", ""),
+                        message_type=log.get("message_type", ""),
+                        thought=log.get("thought"),
+                        tool_name=log.get("tool_name"),
+                        tool_input=log.get("tool_input"),
+                        tool_output=log.get("tool_output"),
+                        observation=log.get("observation"),
+                    )
+                    for log in response["logs"]
+                ],
+                status=response.get("status"),
+                created_at=response.get("created_at"),
+                web_url=response.get("web_url"),
+                result=response.get("result"),
+                metadata=response.get("metadata"),
+                total_logs=response.get("total_logs"),
+                page=response.get("page"),
+                size=response.get("size"),
+                pages=response.get("pages"),
+            )
+
+        # Add methods to AsyncCodegenClient
+        AsyncCodegenClient.list_agent_runs = list_agent_runs
+        AsyncCodegenClient.resume_agent_run = resume_agent_run
+        AsyncCodegenClient.get_agent_run_logs = get_agent_run_logs
+
+    _add_enhanced_async_methods()
+
+
+# ============================================================================
+# COMPREHENSIVE USAGE EXAMPLES
+# ============================================================================
+
+def comprehensive_examples():
+    """Comprehensive example usage showcasing all features"""
+
+    print("=== Comprehensive Codegen API Client Examples ===\n")
+
+    # Example 1: Configuration presets demonstration
+    print("1. Configuration Presets")
+    print("-" * 40)
+    
+    configs = {
+        "Development": ConfigPresets.development(),
+        "Production": ConfigPresets.production(),
+        "High Performance": ConfigPresets.high_performance(),
+        "Testing": ConfigPresets.testing(),
+    }
+
+    for name, config in configs.items():
+        print(f"📋 {name} Config:")
+        print(f"   Timeout: {config.timeout}s")
+        print(f"   Max Retries: {config.max_retries}")
+        print(f"   Rate Limit: {config.rate_limit_requests_per_period}/min")
+        print(f"   Cache TTL: {config.cache_ttl_seconds}s")
+        print(f"   Log Level: {config.log_level}")
+        print()
+
+    print("="*60 + "\n")
+
+    # Example 2: Advanced features demonstration
+    print("2. Advanced Features")
+    print("-" * 40)
+
+    try:
+        config = ConfigPresets.production()
+        with CodegenClient(config) as client:
+            # Cache statistics
+            if client.cache:
+                cache_stats = client.cache.get_stats()
+                print("💾 Cache Statistics:")
+                print(f"   Size: {cache_stats['size']}/{cache_stats['max_size']}")
+                print(f"   Hit Rate: {cache_stats['hit_rate_percentage']:.1f}%")
+                print(f"   TTL: {cache_stats['ttl_seconds']}s")
+
+            # Rate limiter status
+            rate_usage = client.rate_limiter.get_current_usage()
+            print(f"\n🚦 Rate Limiter:")
+            print(f"   Usage: {rate_usage['current_requests']}/{rate_usage['max_requests']}")
+            print(f"   Percentage: {rate_usage['usage_percentage']:.1f}%")
+
+            # Client statistics
+            stats = client.get_stats()
+            print(f"\n📊 Client Statistics:")
+            print(f"   Base URL: {stats['config']['base_url']}")
+            print(f"   Timeout: {stats['config']['timeout']}s")
+            print(f"   Caching: {'✅' if stats['config']['caching_enabled'] else '❌'}")
+            print(f"   Webhooks: {'✅' if stats['config']['webhooks_enabled'] else '❌'}")
+            print(f"   Bulk Ops: {'✅' if stats['config']['bulk_operations_enabled'] else '❌'}")
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+    print("\n" + "="*60 + "\n")
+
+    # Example 3: Bulk operations demonstration
+    print("3. Bulk Operations")
+    print("-" * 40)
+    
+    try:
+        with CodegenClient(ConfigPresets.production()) as client:
+            # Simulate bulk agent run creation
+            run_configs = [
+                {
+                    "prompt": f"Task {i}: Analyze code quality and suggest improvements",
+                    "metadata": {"task_id": i, "batch": "quality_analysis"},
+                }
+                for i in range(3)
+            ]
+
+            def progress_callback(completed, total):
+                print(f"   Progress: {completed}/{total} ({(completed / total) * 100:.1f}%)")
+
+            print("🚀 Creating multiple agent runs...")
+            bulk_result = client.bulk_create_agent_runs(
+                323, run_configs, progress_callback
+            )
+            print(f"✅ Bulk operation completed:")
+            print(f"   Success: {bulk_result.successful_items}/{bulk_result.total_items}")
+            print(f"   Success rate: {bulk_result.success_rate:.2%}")
+            print(f"   Duration: {bulk_result.duration_seconds:.2f}s")
+
+    except Exception as e:
+        print(f"❌ Bulk operation error: {e}")
+
+    print("\n" + "="*60 + "\n")
+
+    # Example 4: Streaming demonstration
+    print("4. Streaming Operations")
+    print("-" * 40)
+    
+    try:
+        with CodegenClient() as client:
+            print("🌊 Streaming users (first 3):")
+            count = 0
+            for user in client.stream_all_users("323"):
+                print(f"   {count + 1}. {user.github_username} ({user.email or 'No email'})")
+                count += 1
+                if count >= 3:
+                    print("   ... (truncated)")
+                    break
+
+    except Exception as e:
+        print(f"❌ Streaming error: {e}")
+
+    print("\n" + "="*60 + "\n")
+
+    # Example 5: Error handling showcase
+    print("5. Error Handling Showcase")
+    print("-" * 40)
+
+    error_scenarios = [
+        ("Empty prompt", lambda c: c.create_agent_run(323, "")),
+        ("Oversized prompt", lambda c: c.create_agent_run(323, "x" * 60000)),
+        ("Invalid pagination", lambda c: c.get_users("323", skip=-1)),
+    ]
+
+    with CodegenClient() as client:
+        for scenario_name, scenario_func in error_scenarios:
+            try:
+                print(f"🧪 Testing: {scenario_name}")
+                scenario_func(client)
+                print("   ✅ No error (unexpected)")
+            except ValidationError as e:
+                print(f"   ✅ Validation Error: {e.message}")
+            except CodegenAPIError as e:
+                print(f"   ✅ API Error: {e.message} (Status: {e.status_code})")
+            except Exception as e:
+                print(f"   ❌ Unexpected Error: {e}")
+
+    print("\n🎉 Comprehensive examples completed!")
+
+
 if __name__ == "__main__":
+    # Run the original main function
     main()
+    
+    print("\n" + "="*80)
+    print("COMPREHENSIVE EXAMPLES")
+    print("="*80)
+    
+    # Run comprehensive examples
+    comprehensive_examples()
