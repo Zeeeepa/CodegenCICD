@@ -21,6 +21,9 @@ import {
   ExpandMore as ExpandMoreIcon,
   Visibility as VisibilityIcon,
   Refresh as RefreshIcon,
+  Edit as EditIcon,
+  Save as SaveIcon,
+  Cancel as CancelIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -40,6 +43,8 @@ const EnvironmentVariables: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
 
   const fetchEnvironmentVariables = async () => {
     try {
@@ -65,6 +70,31 @@ const EnvironmentVariables: React.FC = () => {
       setTimeout(() => setCopiedKey(null), 2000);
     } catch (err) {
       console.error('Failed to copy to clipboard:', err);
+    }
+  };
+
+  const handleEditStart = (key: string, value: string) => {
+    setEditingKey(key);
+    setEditValue(value);
+  };
+
+  const handleEditCancel = () => {
+    setEditingKey(null);
+    setEditValue('');
+  };
+
+  const handleEditSave = async (key: string) => {
+    try {
+      await axios.put(`/api/validation/environment/${key}`, {
+        value: editValue
+      });
+      
+      setEditingKey(null);
+      setEditValue('');
+      await fetchEnvironmentVariables(); // Refresh the data
+    } catch (err: any) {
+      console.error('Failed to update environment variable:', err);
+      // You could show an error message here
     }
   };
 
@@ -270,23 +300,60 @@ const EnvironmentVariables: React.FC = () => {
                                   <ContentCopyIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
+                              <Tooltip title="Edit value">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleEditStart(key, value)}
+                                  color="primary"
+                                >
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
                             </Box>
-                            <Box
-                              sx={{
-                                backgroundColor: 'surface.main',
-                                border: '1px solid',
-                                borderColor: 'divider',
-                                borderRadius: 1,
-                                p: 1,
-                                fontFamily: 'monospace',
-                                fontSize: '0.875rem',
-                                wordBreak: 'break-all',
-                                maxHeight: 100,
-                                overflow: 'auto',
-                              }}
-                            >
-                              {value || <em style={{ color: '#666' }}>Empty</em>}
-                            </Box>
+                            {editingKey === key ? (
+                              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                                <TextField
+                                  fullWidth
+                                  size="small"
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  multiline
+                                  rows={2}
+                                  sx={{ fontFamily: 'monospace' }}
+                                />
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleEditSave(key)}
+                                  color="success"
+                                >
+                                  <SaveIcon fontSize="small" />
+                                </IconButton>
+                                <IconButton
+                                  size="small"
+                                  onClick={handleEditCancel}
+                                  color="error"
+                                >
+                                  <CancelIcon fontSize="small" />
+                                </IconButton>
+                              </Box>
+                            ) : (
+                              <Box
+                                sx={{
+                                  backgroundColor: 'surface.main',
+                                  border: '1px solid',
+                                  borderColor: 'divider',
+                                  borderRadius: 1,
+                                  p: 1,
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.875rem',
+                                  wordBreak: 'break-all',
+                                  maxHeight: 100,
+                                  overflow: 'auto',
+                                }}
+                              >
+                                {value || <em style={{ color: '#666' }}>Empty</em>}
+                              </Box>
+                            )}
                           </CardContent>
                         </Card>
                       </Grid>
