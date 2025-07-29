@@ -71,6 +71,7 @@ const Dashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState(0);
   const [githubRepos, setGithubRepos] = useState<GitHubRepository[]>([]);
   const [reposLoading, setReposLoading] = useState(false);
+  const [pinnedProjects, setPinnedProjects] = useState<GitHubRepository[]>([]);
 
   const { isConnected } = useWebSocket();
 
@@ -78,7 +79,29 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     loadProjects();
     loadGithubRepos();
+    loadPinnedProjects();
   }, []);
+
+  const loadPinnedProjects = () => {
+    const saved = localStorage.getItem('pinnedProjects');
+    if (saved) {
+      setPinnedProjects(JSON.parse(saved));
+    }
+  };
+
+  const pinProject = (repo: GitHubRepository) => {
+    const newPinned = [...pinnedProjects, repo];
+    setPinnedProjects(newPinned);
+    localStorage.setItem('pinnedProjects', JSON.stringify(newPinned));
+    showSnackbar(`${repo.name} pinned to dashboard`, 'success');
+  };
+
+  const unpinProject = (repoId: number) => {
+    const newPinned = pinnedProjects.filter(p => p.id !== repoId);
+    setPinnedProjects(newPinned);
+    localStorage.setItem('pinnedProjects', JSON.stringify(newPinned));
+    showSnackbar('Project unpinned from dashboard', 'success');
+  };
 
   const loadProjects = async () => {
     try {
@@ -180,35 +203,60 @@ const Dashboard: React.FC = () => {
               <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
                 <Typography variant="h6">Loading projects...</Typography>
               </Box>
-            ) : projects.length === 0 ? (
+            ) : pinnedProjects.length === 0 ? (
               <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="400px">
                 <Typography variant="h5" gutterBottom>
-                  No Projects Found
+                  No Pinned Projects
                 </Typography>
                 <Typography variant="body1" color="text.secondary" gutterBottom>
-                  Get started by creating your first project
+                  Pin GitHub repositories to your dashboard using the selector above
                 </Typography>
-                <Button
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={() => setCreateDialogOpen(true)}
-                  sx={{ mt: 2 }}
-                >
-                  Create First Project
-                </Button>
               </Box>
             ) : (
               <Grid container spacing={3}>
-                {projects.map((project) => (
-                  <Grid item xs={12} sm={6} md={4} lg={3} key={project.id}>
-                    <ProjectCard
-                      project={project}
-                      isSelected={project.id === selectedProjectId}
-                      onSelect={() => handleProjectSelect(project.id)}
-                      onUpdate={(data) => handleUpdateProject(project.id, data)}
-                      onDelete={() => handleDeleteProject(project.id)}
-                      onOpenConfig={() => handleOpenConfig(project.id)}
-                    />
+                {pinnedProjects.map((repo) => (
+                  <Grid item xs={12} sm={6} md={4} lg={3} key={repo.id}>
+                    <Card>
+                      <CardContent>
+                        <Box display="flex" justifyContent="space-between" alignItems="start" mb={2}>
+                          <Typography variant="h6" gutterBottom>
+                            {repo.name}
+                          </Typography>
+                          <Button
+                            size="small"
+                            color="error"
+                            onClick={() => unpinProject(repo.id)}
+                          >
+                            Unpin
+                          </Button>
+                        </Box>
+                        <Typography variant="body2" color="text.secondary" gutterBottom>
+                          {repo.description || 'No description available'}
+                        </Typography>
+                        <Box display="flex" alignItems="center" gap={1} mt={2}>
+                          <Chip 
+                            label={repo.private ? 'Private' : 'Public'} 
+                            size="small" 
+                            color={repo.private ? 'warning' : 'success'}
+                          />
+                          {repo.language && (
+                            <Chip 
+                              label={repo.language} 
+                              size="small" 
+                              variant="outlined"
+                            />
+                          )}
+                        </Box>
+                        <Box display="flex" justifyContent="space-between" mt={2}>
+                          <Typography variant="body2" color="text.secondary">
+                            ⭐ {repo.stars || 0}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            🍴 {repo.forks || 0}
+                          </Typography>
+                        </Box>
+                      </CardContent>
+                    </Card>
                   </Grid>
                 ))}
               </Grid>
@@ -264,76 +312,6 @@ const Dashboard: React.FC = () => {
             <EnvironmentVariables />
           </Container>
         );
-      case 3:
-        return (
-          <Container maxWidth="xl" sx={{ mt: 3 }}>
-            <Paper sx={{ p: 3 }}>
-              <Box display="flex" alignItems="center" justifyContent="between" mb={3}>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <GitHubIcon color="primary" />
-                  <Typography variant="h5">GitHub Repositories</Typography>
-                  <Chip 
-                    label={`${githubRepos.length} repos`} 
-                    size="small" 
-                    color="primary" 
-                  />
-                </Box>
-                <Button
-                  startIcon={<RefreshIcon />}
-                  onClick={loadGithubRepos}
-                  disabled={reposLoading}
-                >
-                  Refresh
-                </Button>
-              </Box>
-              
-              {reposLoading ? (
-                <Box display="flex" justifyContent="center" py={4}>
-                  <Typography>Loading repositories...</Typography>
-                </Box>
-              ) : (
-                <Grid container spacing={2}>
-                  {githubRepos.map((repo) => (
-                    <Grid item xs={12} sm={6} md={4} key={repo.id}>
-                      <Card variant="outlined">
-                        <CardContent>
-                          <Typography variant="h6" gutterBottom>
-                            {repo.name}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary" gutterBottom>
-                            {repo.description || 'No description'}
-                          </Typography>
-                          <Box display="flex" alignItems="center" gap={1} mt={1}>
-                            <Chip 
-                              label={repo.private ? 'Private' : 'Public'} 
-                              size="small" 
-                              color={repo.private ? 'warning' : 'success'}
-                            />
-                            {repo.language && (
-                              <Chip 
-                                label={repo.language} 
-                                size="small" 
-                                variant="outlined"
-                              />
-                            )}
-                          </Box>
-                          <Box display="flex" justifyContent="space-between" mt={2}>
-                            <Typography variant="body2" color="text.secondary">
-                              ⭐ {repo.stars || 0}
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              🍴 {repo.forks || 0}
-                            </Typography>
-                          </Box>
-                        </CardContent>
-                      </Card>
-                    </Grid>
-                  ))}
-                </Grid>
-              )}
-            </Paper>
-          </Container>
-        );
       default:
         return null;
     }
@@ -356,17 +334,22 @@ const Dashboard: React.FC = () => {
             sx={{ mr: 2 }}
           />
 
-          {/* Project Selector - Only show on Projects tab */}
+          {/* GitHub Repository Selector - Only show on Projects tab */}
           {activeTab === 0 && (
             <FormControl sx={{ minWidth: 200, mr: 2 }}>
-              <InputLabel id="project-select-label" sx={{ color: 'white' }}>
-                Select Project
+              <InputLabel id="repo-select-label" sx={{ color: 'white' }}>
+                Pin GitHub Repo
               </InputLabel>
               <Select
-                labelId="project-select-label"
-                value={selectedProjectId || ''}
-                onChange={(e) => handleProjectSelect(e.target.value as number)}
-                label="Select Project"
+                labelId="repo-select-label"
+                value=""
+                onChange={(e) => {
+                  const repo = githubRepos.find(r => r.id === e.target.value);
+                  if (repo && !pinnedProjects.find(p => p.id === repo.id)) {
+                    pinProject(repo);
+                  }
+                }}
+                label="Pin GitHub Repo"
                 sx={{ 
                   color: 'white',
                   '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.23)' },
@@ -375,9 +358,9 @@ const Dashboard: React.FC = () => {
                   '.MuiSvgIcon-root': { color: 'white' }
                 }}
               >
-                {projects.map((project) => (
-                  <MenuItem key={project.id} value={project.id}>
-                    {project.name} ({project.github_owner}/{project.github_repo})
+                {githubRepos.filter(repo => !pinnedProjects.find(p => p.id === repo.id)).map((repo) => (
+                  <MenuItem key={repo.id} value={repo.id}>
+                    {repo.name}
                   </MenuItem>
                 ))}
               </Select>
@@ -386,35 +369,14 @@ const Dashboard: React.FC = () => {
 
           {/* Action Buttons - Only show on Projects tab */}
           {activeTab === 0 && (
-            <>
-              <Button
-                color="inherit"
-                startIcon={<AddIcon />}
-                onClick={() => setCreateDialogOpen(true)}
-                sx={{ mr: 1 }}
-              >
-                Add Project
-              </Button>
-              
-              <Button
-                color="inherit"
-                startIcon={<RefreshIcon />}
-                onClick={loadProjects}
-                sx={{ mr: 1 }}
-              >
-                Refresh
-              </Button>
-
-              {selectedProject && (
-                <Button
-                  color="inherit"
-                  startIcon={<SettingsIcon />}
-                  onClick={() => handleOpenConfig(selectedProject.id)}
-                >
-                  Settings
-                </Button>
-              )}
-            </>
+            <Button
+              color="inherit"
+              startIcon={<RefreshIcon />}
+              onClick={loadGithubRepos}
+              sx={{ mr: 1 }}
+            >
+              Refresh Repos
+            </Button>
           )}
         </Toolbar>
       </AppBar>
@@ -441,11 +403,6 @@ const Dashboard: React.FC = () => {
           <Tab 
             icon={<VisibilityIcon />} 
             label="Environment" 
-            iconPosition="start"
-          />
-          <Tab 
-            icon={<GitHubIcon />} 
-            label="GitHub Repos" 
             iconPosition="start"
           />
         </Tabs>
