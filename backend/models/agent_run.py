@@ -17,6 +17,7 @@ class AgentRunStatus(enum.Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    PAUSED = "paused"  # Added to match API
 
 
 class AgentRunType(enum.Enum):
@@ -165,4 +166,3 @@ class AgentRunResponse(BaseModel):
     
     def __repr__(self) -> str:
         return f"<AgentRunResponse(agent_run_id={self.agent_run_id}, seq={self.sequence_number}, type={self.response_type})>"
-
