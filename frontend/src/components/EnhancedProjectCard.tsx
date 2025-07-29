@@ -33,11 +33,11 @@ import {
   OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material';
 
-import { AgentRunDialog } from './AgentRunDialog';
-import { ProjectSettingsDialog } from './ProjectSettingsDialog';
+import AgentRunDialog from './AgentRunDialog';
+import ProjectSettingsDialog from './ProjectSettingsDialog';
 
 export interface ProjectData {
-  id: string;
+  id: number;
   name: string;
   description?: string;
   github_owner: string;
@@ -45,9 +45,12 @@ export interface ProjectData {
   github_branch: string;
   github_url: string;
   webhook_active: boolean;
+  webhook_url: string;
   auto_merge_enabled: boolean;
+  auto_confirm_plans: boolean;
   auto_merge_threshold: number;
   is_active: boolean;
+  status: 'active' | 'inactive';
   validation_enabled: boolean;
   
   // Configuration indicators
@@ -71,14 +74,16 @@ export interface ProjectData {
   last_run_at?: string;
   total_runs: number;
   success_rate: number;
+  created_at: string;
+  updated_at: string;
 }
 
 interface EnhancedProjectCardProps {
   project: ProjectData;
-  onAgentRun: (projectId: string, target: string) => void;
-  onUpdateProject: (projectId: string, updates: Partial<ProjectData>) => void;
-  onDeleteProject: (projectId: string) => void;
-  onRefreshProject: (projectId: string) => void;
+  onAgentRun: (projectId: number, target: string) => void;
+  onUpdateProject: (projectId: number, updates: Partial<ProjectData>) => void;
+  onDeleteProject: (projectId: number) => void;
+  onRefreshProject: (projectId: number) => void;
 }
 
 export const EnhancedProjectCard: React.FC<EnhancedProjectCardProps> = ({
@@ -122,8 +127,8 @@ export const EnhancedProjectCard: React.FC<EnhancedProjectCardProps> = ({
     project.has_planning_statement,
   ].filter(Boolean).length;
 
-  const handleAgentRun = (target: string) => {
-    onAgentRun(project.id, target);
+  const handleAgentRun = (data: { target_text: string; planning_statement?: string }) => {
+    onAgentRun(project.id, data.target_text);
     setAgentRunDialogOpen(false);
   };
 
@@ -333,6 +338,7 @@ export const EnhancedProjectCard: React.FC<EnhancedProjectCardProps> = ({
         onClose={() => setAgentRunDialogOpen(false)}
         onSubmit={handleAgentRun}
         project={project}
+        loading={false}
       />
 
       <ProjectSettingsDialog

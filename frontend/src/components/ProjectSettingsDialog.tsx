@@ -522,3 +522,5 @@ Guidelines:
     </Dialog>
   );
 };
+
+export default ProjectSettingsDialog;

@@ -111,17 +111,20 @@ const Dashboard: React.FC = () => {
     
     // Convert to ProjectData and add to projects
     const projectData: ProjectData = {
-      id: repo.id.toString(),
+      id: repo.id,
       name: repo.name,
       description: repo.description || undefined,
-      github_owner: repo.owner?.login || repo.full_name.split('/')[0],
+      github_owner: repo.owner || repo.full_name.split('/')[0],
       github_repo: repo.name,
-      github_branch: repo.default_branch || 'main',
-      github_url: repo.html_url,
+      github_branch: 'main', // Default branch
+      github_url: repo.url,
       webhook_active: false,
+      webhook_url: '',
       auto_merge_enabled: false,
+      auto_confirm_plans: false,
       auto_merge_threshold: 80,
       is_active: true,
+      status: 'active' as const,
       validation_enabled: true,
       has_repository_rules: false,
       has_setup_commands: false,
@@ -129,6 +132,8 @@ const Dashboard: React.FC = () => {
       has_planning_statement: false,
       total_runs: 0,
       success_rate: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
     
     setProjectsData(prev => [...prev, projectData]);
@@ -142,21 +147,24 @@ const Dashboard: React.FC = () => {
     localStorage.setItem('pinnedProjects', JSON.stringify(newPinned));
     
     // Remove from projects data
-    setProjectsData(prev => prev.filter(p => p.id !== repoId.toString()));
+    setProjectsData(prev => prev.filter(p => p.id !== repoId));
     
     showSnackbar('Project unpinned from dashboard', 'success');
   };
 
   // Agent run handlers
-  const handleAgentRun = async (projectId: string, target: string) => {
+  const handleAgentRun = async (projectId: number, target: string) => {
     try {
-      showSnackbar('Starting agent run...', 'info');
+      showSnackbar('Starting agent run...', 'success');
       
       // In a real implementation, this would call the backend API
       const response = await fetch('/api/agent-runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_id: projectId, target })
+        body: JSON.stringify({ 
+          project_id: projectId, 
+          target_text: target 
+        })
       });
       
       if (response.ok) {
@@ -187,25 +195,24 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handleUpdateProject = (projectId: string, updates: Partial<ProjectData>) => {
+  const handleUpdateProject = (projectId: number, updates: Partial<ProjectData>) => {
     setProjectsData(prev => prev.map(p => 
       p.id === projectId ? { ...p, ...updates } : p
     ));
     showSnackbar('Project updated successfully', 'success');
   };
 
-  const handleDeleteProject = (projectId: string) => {
+  const handleDeleteProject = (projectId: number) => {
     const project = projectsData.find(p => p.id === projectId);
     if (project) {
       // Remove from pinned projects
-      const repoId = parseInt(projectId);
-      unpinProject(repoId);
+      unpinProject(projectId);
     }
   };
 
-  const handleRefreshProject = async (projectId: string) => {
+  const handleRefreshProject = async (projectId: number) => {
     try {
-      showSnackbar('Refreshing project...', 'info');
+      showSnackbar('Refreshing project...', 'success');
       
       // In a real implementation, this would fetch fresh data from the API
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -251,28 +258,9 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handleUpdateProject = async (projectId: number, projectData: Partial<Project>) => {
-    try {
-      const response = await projectsApi.update(projectId, projectData);
-      setProjects(prev => prev.map(p => p.id === projectId ? response.data : p));
-      showSnackbar('Project updated successfully!', 'success');
-    } catch (err: any) {
-      showSnackbar(err.response?.data?.detail || 'Failed to update project', 'error');
-    }
-  };
 
-  const handleDeleteProject = async (projectId: number) => {
-    try {
-      await projectsApi.delete(projectId);
-      setProjects(prev => prev.filter(p => p.id !== projectId));
-      if (selectedProjectId === projectId) {
-        setSelectedProjectId(projects.length > 1 ? projects.find(p => p.id !== projectId)?.id || null : null);
-      }
-      showSnackbar('Project deleted successfully!', 'success');
-    } catch (err: any) {
-      showSnackbar(err.response?.data?.detail || 'Failed to delete project', 'error');
-    }
-  };
+
+
 
   const handleOpenConfig = (projectId: number) => {
     setConfigProjectId(projectId);
