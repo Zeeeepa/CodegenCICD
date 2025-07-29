@@ -344,7 +344,7 @@ const Dashboard: React.FC = () => {
                 labelId="repo-select-label"
                 value=""
                 onChange={(e) => {
-                  const repo = githubRepos.find(r => r.id === e.target.value);
+                  const repo = githubRepos.find(r => r.id === Number(e.target.value));
                   if (repo && !pinnedProjects.find(p => p.id === repo.id)) {
                     pinProject(repo);
                   }
