@@ -17,19 +17,30 @@ logger = structlog.get_logger(__name__)
 settings = get_settings()
 
 # Create async engine with comprehensive configuration
-engine = create_async_engine(
-    get_database_url(),
-    echo=settings.debug,
-    pool_pre_ping=True,
-    pool_recycle=300,
-    pool_size=20,
-    max_overflow=30,
-    poolclass=NullPool if "sqlite" in get_database_url() else None,
-    connect_args={
-        "server_settings": {"jit": "off"}
-    } if "postgresql" in get_database_url() else {},
-    future=True
-)
+database_url = get_database_url()
+if "sqlite" in database_url:
+    # SQLite configuration
+    engine = create_async_engine(
+        database_url,
+        echo=settings.debug,
+        poolclass=NullPool,
+        connect_args={"check_same_thread": False},
+        future=True
+    )
+else:
+    # PostgreSQL configuration
+    engine = create_async_engine(
+        database_url,
+        echo=settings.debug,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        pool_size=20,
+        max_overflow=30,
+        connect_args={
+            "server_settings": {"jit": "off"}
+        },
+        future=True
+    )
 
 # Create async session maker
 AsyncSessionLocal = async_sessionmaker(

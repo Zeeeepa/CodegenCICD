@@ -4,10 +4,11 @@ from typing import Dict, Any, List, Optional
 import os
 from datetime import datetime
 
-from ..database import get_db
-from ..models.project import Project
-from ..models.settings import EnvironmentVariable, ValidationRun, ValidationStep
-from ..services.validation_service import ValidationService
+from backend.database import get_db
+from backend.models.project import Project
+from backend.models.settings import EnvironmentVariable
+from backend.models.validation import ValidationRun, ValidationStep
+from backend.services.validation_service import ValidationService
 
 router = APIRouter(prefix="/api/validation", tags=["validation"])
 
@@ -445,4 +446,3 @@ async def get_validation_metrics(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get validation metrics: {str(e)}")
-

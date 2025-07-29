@@ -32,9 +32,9 @@ class Settings(BaseSettings):
     # =============================================================================
     # DATABASE CONFIGURATION
     # =============================================================================
-    postgres_password: str = Field(env="POSTGRES_PASSWORD")
+    postgres_password: str = Field(default="defaultpassword", env="POSTGRES_PASSWORD")
     database_url: str = Field(
-        default="postgresql+asyncpg://postgres:password@localhost:5432/codegencd",
+        default="sqlite+aiosqlite:///./codegen_cicd.db",
         env="DATABASE_URL"
     )
     redis_url: str = Field(default="redis://localhost:6379/0", env="REDIS_URL")
@@ -42,9 +42,9 @@ class Settings(BaseSettings):
     # =============================================================================
     # SECURITY CONFIGURATION
     # =============================================================================
-    secret_key: str = Field(env="SECRET_KEY")
-    encryption_key: str = Field(env="ENCRYPTION_KEY")
-    encryption_salt: str = Field(env="ENCRYPTION_SALT")
+    secret_key: str = Field(default="your-secret-key-here-change-in-production", env="SECRET_KEY")
+    encryption_key: str = Field(default="your-32-byte-encryption-key-here-change-in-production", env="ENCRYPTION_KEY")
+    encryption_salt: str = Field(default="your-encryption-salt-here", env="ENCRYPTION_SALT")
     jwt_secret_key: Optional[str] = Field(default=None, env="JWT_SECRET_KEY")
     jwt_algorithm: str = Field(default="HS256", env="JWT_ALGORITHM")
     jwt_expire_minutes: int = Field(default=30, env="JWT_EXPIRE_MINUTES")
@@ -52,28 +52,28 @@ class Settings(BaseSettings):
     # =============================================================================
     # CODEGEN API CONFIGURATION
     # =============================================================================
-    codegen_org_id: int = Field(env="CODEGEN_ORG_ID")
-    codegen_api_token: str = Field(env="CODEGEN_API_TOKEN")
+    codegen_org_id: int = Field(default=0, env="CODEGEN_ORG_ID")
+    codegen_api_token: str = Field(default="", env="CODEGEN_API_TOKEN")
     
     # =============================================================================
     # GITHUB INTEGRATION
     # =============================================================================
-    github_token: str = Field(env="GITHUB_TOKEN")
+    github_token: str = Field(default="", env="GITHUB_TOKEN")
     github_webhook_secret: Optional[str] = Field(default=None, env="GITHUB_WEBHOOK_SECRET")
     
     # =============================================================================
     # AI SERVICES
     # =============================================================================
-    gemini_api_key: str = Field(env="GEMINI_API_KEY")
+    gemini_api_key: str = Field(default="", env="GEMINI_API_KEY")
     
     # =============================================================================
     # CLOUDFLARE CONFIGURATION
     # =============================================================================
-    cloudflare_api_key: str = Field(env="CLOUDFLARE_API_KEY")
-    cloudflare_account_id: str = Field(env="CLOUDFLARE_ACCOUNT_ID")
+    cloudflare_api_key: str = Field(default="", env="CLOUDFLARE_API_KEY")
+    cloudflare_account_id: str = Field(default="", env="CLOUDFLARE_ACCOUNT_ID")
     cloudflare_email: str = Field(default="admin@example.com", env="CLOUDFLARE_EMAIL")
     cloudflare_worker_name: str = Field(default="webhook-gateway", env="CLOUDFLARE_WORKER_NAME")
-    cloudflare_worker_url: str = Field(env="CLOUDFLARE_WORKER_URL")
+    cloudflare_worker_url: str = Field(default="https://webhook-gateway.pixeliumperfecto.workers.dev", env="CLOUDFLARE_WORKER_URL")
     
     # =============================================================================
     # VALIDATION TOOLS CONFIGURATION
@@ -156,8 +156,8 @@ class Settings(BaseSettings):
     
     @validator("graph_sitter_languages", pre=True)
     def parse_languages(cls, v):
-        if isinstance(v, str):
-            return v.split(",")
+        if isinstance(v, list):
+            return ",".join(v)
         return v
     
     @validator("encryption_key")

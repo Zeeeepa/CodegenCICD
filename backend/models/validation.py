@@ -85,7 +85,7 @@ class ValidationRun(BaseModel):
     web_eval_session_id = Column(String(255))
     
     # Metadata
-    metadata = Column(JSON, default=dict)
+    validation_metadata = Column(JSON, default=dict)
     
     # Relationships
     project = relationship("Project", back_populates="validation_runs")
@@ -177,7 +177,7 @@ class ValidationStep(BaseModel):
     external_service_url = Column(String(500))  # URL to external service results
     
     # Metadata
-    metadata = Column(JSON, default=dict)
+    step_metadata = Column(JSON, default=dict)
     
     # Relationships
     validation_run = relationship("ValidationRun", back_populates="steps")
@@ -223,11 +223,10 @@ class ValidationResult(BaseModel):
     tags = Column(JSON, default=list)  # List of tags for categorization
     
     # Metadata
-    metadata = Column(JSON, default=dict)
+    result_metadata = Column(JSON, default=dict)
     
     # Relationships
     validation_run = relationship("ValidationRun", back_populates="results")
     
     def __repr__(self) -> str:
         return f"<ValidationResult(validation_run_id={self.validation_run_id}, type={self.result_type}, name={self.result_name})>"
-

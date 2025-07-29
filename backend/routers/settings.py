@@ -7,12 +7,12 @@ from datetime import datetime
 import asyncio
 import aiohttp
 
-from ..database import get_db
-from ..models.settings import Settings, EnvironmentVariable
-from ..services.validation_service import ValidationService
-from ..integrations.codegen_client import CodegenClient
-from ..integrations.github_client import GitHubClient
-from ..integrations.cloudflare_client import CloudflareClient
+from backend.database import get_db
+from backend.models.settings import Settings, EnvironmentVariable
+from backend.services.validation_service import ValidationService
+from backend.integrations.codegen_client import CodegenClient
+from backend.integrations.github_client import GitHubClient
+from backend.integrations.cloudflare_client import CloudflareClient
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 

@@ -14,8 +14,8 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel
 import structlog
 
-from backend.core.settings import get_settings
-from backend.core.database import get_database
+from backend.config import get_settings
+from backend.database import get_db_session
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/health", tags=["health"])

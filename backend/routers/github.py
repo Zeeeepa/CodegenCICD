@@ -4,11 +4,11 @@ from typing import List, Dict, Any, Optional
 import os
 from datetime import datetime
 
-from ..database import get_db
-from ..models.project import Project
-from ..models.settings import EnvironmentVariable
-from ..integrations.github_client import GitHubClient
-from ..integrations.cloudflare_client import CloudflareClient, generate_webhook_worker_script
+from backend.database import get_db
+from backend.models.project import Project
+from backend.models.settings import EnvironmentVariable
+from backend.integrations.github_client import GitHubClient
+from backend.integrations.cloudflare_client import CloudflareClient, generate_webhook_worker_script
 
 router = APIRouter(prefix="/api/github", tags=["github"])
 
@@ -389,4 +389,3 @@ async def test_github_connection(github_client: GitHubClient = Depends(get_githu
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"GitHub connection failed: {str(e)}")
-
