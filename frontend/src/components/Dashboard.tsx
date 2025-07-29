@@ -19,10 +19,21 @@ import {
   Paper,
   Card,
   CardContent,
+  Menu,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemIcon,
+  Divider,
 } from '@mui/material';
 import {
   Add as AddIcon,
-  Refresh as RefreshIcon,
   Settings as SettingsIcon,
   Dashboard as DashboardIcon,
   Visibility as VisibilityIcon,
@@ -31,6 +42,7 @@ import {
   GitHub as GitHubIcon,
   Cloud as CloudIcon,
   Psychology as PsychologyIcon,
+  ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 import { projectsApi, Project } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -72,6 +84,8 @@ const Dashboard: React.FC = () => {
   const [githubRepos, setGithubRepos] = useState<GitHubRepository[]>([]);
   const [reposLoading, setReposLoading] = useState(false);
   const [pinnedProjects, setPinnedProjects] = useState<GitHubRepository[]>([]);
+  const [projectMenuAnchor, setProjectMenuAnchor] = useState<null | HTMLElement>(null);
+  const [variablesDialogOpen, setVariablesDialogOpen] = useState(false);
 
   const { isConnected } = useWebSocket();
 
@@ -322,10 +336,6 @@ const Dashboard: React.FC = () => {
       {/* Header */}
       <AppBar position="static" elevation={1}>
         <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            🚀 CodegenCICD Dashboard
-          </Typography>
-          
           {/* Connection Status */}
           <Chip
             label={isConnected ? 'Connected' : 'Disconnected'}
@@ -334,52 +344,68 @@ const Dashboard: React.FC = () => {
             sx={{ mr: 2 }}
           />
 
-          {/* GitHub Repository Selector - Only show on Projects tab */}
-          {activeTab === 0 && (
-            <FormControl sx={{ minWidth: 200, mr: 2 }}>
-              <InputLabel id="repo-select-label" sx={{ color: 'white' }}>
-                Pin GitHub Repo
-              </InputLabel>
-              <Select
-                labelId="repo-select-label"
-                value=""
-                onChange={(e) => {
-                  const repo = githubRepos.find(r => r.id === Number(e.target.value));
-                  if (repo && !pinnedProjects.find(p => p.id === repo.id)) {
-                    pinProject(repo);
-                  }
-                }}
-                label="Pin GitHub Repo"
-                sx={{ 
-                  color: 'white',
-                  '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.23)' },
-                  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.5)' },
-                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'white' },
-                  '.MuiSvgIcon-root': { color: 'white' }
-                }}
-              >
-                {githubRepos.filter(repo => !pinnedProjects.find(p => p.id === repo.id)).map((repo) => (
-                  <MenuItem key={repo.id} value={repo.id}>
-                    {repo.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
+          <Box sx={{ flexGrow: 1 }} />
 
-          {/* Action Buttons - Only show on Projects tab */}
-          {activeTab === 0 && (
-            <Button
-              color="inherit"
-              startIcon={<RefreshIcon />}
-              onClick={loadGithubRepos}
-              sx={{ mr: 1 }}
-            >
-              Refresh Repos
-            </Button>
-          )}
+          {/* GitHub Projects Dropdown */}
+          <Button
+            color="inherit"
+            startIcon={<GitHubIcon />}
+            endIcon={<ExpandMoreIcon />}
+            onClick={(e) => setProjectMenuAnchor(e.currentTarget)}
+            sx={{ mr: 2 }}
+          >
+            Select Project
+          </Button>
+
+          {/* Variables Settings Gear Icon */}
+          <IconButton
+            color="inherit"
+            onClick={() => setVariablesDialogOpen(true)}
+            sx={{ mr: 1 }}
+          >
+            <SettingsIcon />
+          </IconButton>
         </Toolbar>
       </AppBar>
+
+      {/* GitHub Projects Menu */}
+      <Menu
+        anchorEl={projectMenuAnchor}
+        open={Boolean(projectMenuAnchor)}
+        onClose={() => setProjectMenuAnchor(null)}
+        PaperProps={{
+          style: {
+            maxHeight: 400,
+            width: '300px',
+          },
+        }}
+      >
+        {reposLoading ? (
+          <MenuItem disabled>Loading repositories...</MenuItem>
+        ) : githubRepos.length === 0 ? (
+          <MenuItem disabled>No repositories found</MenuItem>
+        ) : (
+          githubRepos
+            .filter(repo => !pinnedProjects.find(p => p.id === repo.id))
+            .map((repo) => (
+              <MenuItem
+                key={repo.id}
+                onClick={() => {
+                  pinProject(repo);
+                  setProjectMenuAnchor(null);
+                }}
+              >
+                <ListItemIcon>
+                  <GitHubIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText
+                  primary={repo.name}
+                  secondary={repo.description || 'No description'}
+                />
+              </MenuItem>
+            ))
+        )}
+      </Menu>
 
       {/* Navigation Tabs */}
       <Paper square elevation={0} sx={{ borderBottom: 1, borderColor: 'divider' }}>
@@ -392,7 +418,7 @@ const Dashboard: React.FC = () => {
         >
           <Tab 
             icon={<DashboardIcon />} 
-            label="Projects" 
+            label="PINNED" 
             iconPosition="start"
           />
           <Tab 
@@ -428,6 +454,80 @@ const Dashboard: React.FC = () => {
           projectId={configProjectId}
         />
       )}
+
+      {/* Variables Management Dialog */}
+      <Dialog
+        open={variablesDialogOpen}
+        onClose={() => setVariablesDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Environment Variables</DialogTitle>
+        <DialogContent>
+          <List>
+            <ListItem>
+              <ListItemIcon>
+                <CodeIcon color="primary" />
+              </ListItemIcon>
+              <ListItemText
+                primary="Codegen API"
+                secondary="CODEGEN_ORG_ID, CODEGEN_API_TOKEN"
+              />
+              <Chip label="Configured" color="success" size="small" />
+            </ListItem>
+            <Divider />
+            <ListItem>
+              <ListItemIcon>
+                <GitHubIcon color="primary" />
+              </ListItemIcon>
+              <ListItemText
+                primary="GitHub API"
+                secondary="GITHUB_TOKEN"
+              />
+              <Chip label="Error" color="error" size="small" />
+            </ListItem>
+            <Divider />
+            <ListItem>
+              <ListItemIcon>
+                <PsychologyIcon color="primary" />
+              </ListItemIcon>
+              <ListItemText
+                primary="Gemini AI"
+                secondary="GEMINI_API_KEY"
+              />
+              <Chip label="Configured" color="success" size="small" />
+            </ListItem>
+            <Divider />
+            <ListItem>
+              <ListItemIcon>
+                <CloudIcon color="primary" />
+              </ListItemIcon>
+              <ListItemText
+                primary="Cloudflare"
+                secondary="CLOUDFLARE_API_KEY, CLOUDFLARE_ACCOUNT_ID"
+              />
+              <Chip label="Error" color="error" size="small" />
+            </ListItem>
+          </List>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="body2" color="text.secondary">
+              Note: Environment variables can be edited in the Environment tab or through your deployment configuration.
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setVariablesDialogOpen(false)}>Close</Button>
+          <Button 
+            onClick={() => {
+              setVariablesDialogOpen(false);
+              setActiveTab(2); // Switch to Environment tab
+            }}
+            variant="contained"
+          >
+            Edit Variables
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Snackbar for notifications */}
       <Snackbar

@@ -208,9 +208,7 @@ BACKEND_HOST=localhost
 FRONTEND_HOST=localhost
 
 # External Service URLs (for integrations)
-GRAINCHAIN_URL=http://localhost:8001
-GRAPH_SITTER_URL=http://localhost:8002
-WEB_EVAL_AGENT_URL=http://localhost:8003
+# Note: GRAINCHAIN_URL, GRAPH_SITTER_URL, WEB_EVAL_AGENT_URL removed - services disabled
 EOF
     print_status "Created .env.example template"
 else
@@ -246,4 +244,3 @@ echo "   Frontend: http://localhost:3001"
 echo "   Backend:  http://localhost:8000"
 echo ""
 print_status "Ready to launch your AI-powered CI/CD dashboard! 🚀"
-
