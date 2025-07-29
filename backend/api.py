@@ -488,60 +488,26 @@ class ClientConfig:
 
 
 class ConfigPresets:
-    """Predefined configuration presets"""
+    """Development-only configuration preset"""
 
     @staticmethod
     def development() -> ClientConfig:
-        """Development configuration with verbose logging and lower limits"""
+        """Development configuration - the only mode available"""
         return ClientConfig(
             timeout=60,
-            max_retries=1,
-            rate_limit_requests_per_period=30,
-            cache_ttl_seconds=60,
+            max_retries=3,
+            rate_limit_requests_per_period=60,
+            cache_ttl_seconds=300,
             log_level="DEBUG",
             log_requests=True,
             log_responses=True,
-            log_request_bodies=True,
-        )
-
-    @staticmethod
-    def production() -> ClientConfig:
-        """Production configuration with optimized settings"""
-        return ClientConfig(
-            timeout=30,
-            max_retries=3,
-            rate_limit_requests_per_period=100,
-            cache_ttl_seconds=300,
-            log_level="INFO",
-            log_requests=True,
-            log_responses=False,
             log_request_bodies=False,
         )
 
     @staticmethod
-    def high_performance() -> ClientConfig:
-        """High performance configuration for heavy workloads"""
-        return ClientConfig(
-            timeout=45,
-            max_retries=5,
-            rate_limit_requests_per_period=200,
-            cache_ttl_seconds=600,
-            cache_max_size=256,
-            bulk_max_workers=10,
-            bulk_batch_size=200,
-            log_level="WARNING",
-        )
-
-    @staticmethod
-    def testing() -> ClientConfig:
-        """Testing configuration with minimal caching and retries"""
-        return ClientConfig(
-            timeout=10,
-            max_retries=1,
-            enable_caching=False,
-            rate_limit_requests_per_period=10,
-            log_level="DEBUG",
-        )
+    def default() -> ClientConfig:
+        """Default configuration (same as development)"""
+        return ConfigPresets.development()
 
 
 # ============================================================================

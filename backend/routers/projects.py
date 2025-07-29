@@ -1,247 +1,212 @@
 """
-Projects router for managing GitHub projects and their configurations
+Project management API routes
 """
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from typing import List, Optional
-import logging
-
-from backend.database import get_db
-from backend.models.project import Project
-from backend.services.github_service import GitHubService
-from backend.services.projects_service import ProjectsService
-
-logger = logging.getLogger(__name__)
-
-router = APIRouter()
-
-# Pydantic models for request/response
+from typing import Dict, Any, List
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
+import structlog
 
-class ProjectCreate(BaseModel):
-    name: str
-    github_owner: str
-    github_repo: str
-    webhook_url: Optional[str] = None
-    auto_merge_enabled: bool = False
-    auto_confirm_plans: bool = False
+from backend.services.project_service import project_service
+from backend.services.github_service import github_service
 
-class ProjectUpdate(BaseModel):
-    name: Optional[str] = None
-    github_owner: Optional[str] = None
-    github_repo: Optional[str] = None
-    webhook_url: Optional[str] = None
-    auto_merge_enabled: Optional[bool] = None
-    auto_confirm_plans: Optional[bool] = None
-    status: Optional[str] = None
+logger = structlog.get_logger(__name__)
+router = APIRouter(prefix="/api/projects", tags=["projects"])
 
-class ProjectResponse(BaseModel):
-    id: int
-    name: str
-    github_owner: str
-    github_repo: str
-    webhook_url: str
-    auto_merge_enabled: bool
-    auto_confirm_plans: bool
-    status: str
-    created_at: str
-    updated_at: str
 
-    class Config:
-        from_attributes = True
+class AddProjectRequest(BaseModel):
+    github_repo_data: Dict[str, Any]
 
-@router.get("/", response_model=List[ProjectResponse])
-async def get_projects(
-    skip: int = 0,
-    limit: int = 100,
-    db: AsyncSession = Depends(get_db)
-):
-    """Get all projects"""
+
+class UpdateProjectSettingsRequest(BaseModel):
+    repository_rules: str = None
+    setup_commands: str = None
+    setup_branch: str = None
+    planning_statement: str = None
+    secrets: Dict[str, str] = None
+    validation_timeout: int = None
+    max_validation_retries: int = None
+    deployment_commands: str = None
+    health_check_url: str = None
+
+
+class UpdateProjectConfigRequest(BaseModel):
+    auto_merge_enabled: bool = None
+    auto_confirm_plans: bool = None
+    auto_merge_threshold: int = None
+    validation_enabled: bool = None
+
+
+@router.get("/github-repositories")
+async def get_github_repositories():
+    """Get all GitHub repositories for the user"""
     try:
-        result = await db.execute(
-            select(Project)
-            .offset(skip)
-            .limit(limit)
-            .order_by(Project.created_at.desc())
-        )
-        projects = result.scalars().all()
-        return [ProjectResponse.model_validate(project) for project in projects]
+        repositories = await project_service.get_github_repositories()
+        return {"repositories": repositories}
     except Exception as e:
-        logger.error(f"Failed to get projects: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve projects"
-        )
+        logger.error("Error fetching GitHub repositories", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch GitHub repositories")
 
-@router.get("/{project_id}", response_model=ProjectResponse)
-async def get_project(
-    project_id: int,
-    db: AsyncSession = Depends(get_db)
-):
-    """Get a specific project by ID"""
-    try:
-        result = await db.execute(select(Project).where(Project.id == project_id))
-        project = result.scalar_one_or_none()
-        
-        if not project:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found"
-            )
-        
-        return ProjectResponse.model_validate(project)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get project {project_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve project"
-        )
 
-@router.post("/", response_model=ProjectResponse)
-async def create_project(
-    project_data: ProjectCreate,
-    db: AsyncSession = Depends(get_db)
-):
-    """Create a new project"""
+@router.get("/dashboard")
+async def get_dashboard_projects():
+    """Get all projects on the dashboard"""
     try:
-        # Validate GitHub repository exists
-        github_service = GitHubService()
-        repo_exists = await github_service.validate_repository(
-            project_data.github_owner,
-            project_data.github_repo
-        )
-        
-        if not repo_exists:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="GitHub repository not found or not accessible"
-            )
-        
-        # Generate webhook URL if not provided
-        webhook_url = project_data.webhook_url
-        if not webhook_url:
-            webhook_url = f"https://webhook-gateway.pixeliumperfecto.workers.dev/webhook/{project_data.github_owner}/{project_data.github_repo}"
-        
-        # Create project
-        project = Project(
-            name=project_data.name,
-            github_owner=project_data.github_owner,
-            github_repo=project_data.github_repo,
-            webhook_url=webhook_url,
-            auto_merge_enabled=project_data.auto_merge_enabled,
-            auto_confirm_plans=project_data.auto_confirm_plans,
-            status="active"
-        )
-        
-        db.add(project)
-        await db.commit()
-        await db.refresh(project)
-        
-        # Set up GitHub webhook
-        try:
-            await github_service.setup_webhook(
-                project_data.github_owner,
-                project_data.github_repo,
-                webhook_url
-            )
-        except Exception as e:
-            logger.warning(f"Failed to setup GitHub webhook: {e}")
-            # Don't fail the project creation if webhook setup fails
-        
-        logger.info(f"Created project: {project.name} ({project.id})")
-        return ProjectResponse.model_validate(project)
-        
-    except HTTPException:
-        raise
+        projects = await project_service.get_dashboard_projects()
+        return {"projects": projects}
     except Exception as e:
-        logger.error(f"Failed to create project: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create project"
-        )
+        logger.error("Error fetching dashboard projects", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch dashboard projects")
 
-@router.put("/{project_id}", response_model=ProjectResponse)
-async def update_project(
-    project_id: int,
-    project_data: ProjectUpdate,
-    db: AsyncSession = Depends(get_db)
-):
-    """Update a project"""
+
+@router.post("/add")
+async def add_project_to_dashboard(request: AddProjectRequest):
+    """Add a GitHub repository as a project to the dashboard"""
     try:
-        result = await db.execute(select(Project).where(Project.id == project_id))
-        project = result.scalar_one_or_none()
+        project = await project_service.add_project_to_dashboard(request.github_repo_data)
         
-        if not project:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found"
-            )
+        # Convert to dict for response
+        project_data = {
+            "id": project.id,
+            "github_id": project.github_id,
+            "name": project.name,
+            "full_name": project.full_name,
+            "description": project.description,
+            "github_owner": project.github_owner,
+            "github_repo": project.github_repo,
+            "github_branch": project.github_branch,
+            "github_url": project.github_url,
+            "webhook_active": project.webhook_active,
+            "webhook_url": project.webhook_url,
+            "auto_merge_enabled": project.auto_merge_enabled,
+            "auto_confirm_plans": project.auto_confirm_plans,
+            "status": project.status,
+            "created_at": project.created_at.isoformat()
+        }
         
-        # Update fields
-        update_data = project_data.model_dump(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(project, field, value)
+        return {"project": project_data}
         
-        await db.commit()
-        await db.refresh(project)
-        
-        logger.info(f"Updated project: {project.name} ({project.id})")
-        return ProjectResponse.model_validate(project)
-        
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Failed to update project {project_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update project"
-        )
+        logger.error("Error adding project to dashboard", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to add project to dashboard")
+
 
 @router.delete("/{project_id}")
-async def delete_project(
-    project_id: int,
-    db: AsyncSession = Depends(get_db)
-):
-    """Delete a project"""
+async def remove_project_from_dashboard(project_id: int):
+    """Remove a project from the dashboard"""
     try:
-        result = await db.execute(select(Project).where(Project.id == project_id))
-        project = result.scalar_one_or_none()
+        success = await project_service.remove_project_from_dashboard(project_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Project not found")
         
-        if not project:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found"
-            )
-        
-        await db.delete(project)
-        await db.commit()
-        
-        logger.info(f"Deleted project: {project.name} ({project.id})")
-        return {"message": "Project deleted successfully"}
+        return {"message": "Project removed successfully"}
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to delete project {project_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete project"
-        )
+        logger.error("Error removing project from dashboard", 
+                   project_id=project_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to remove project from dashboard")
 
-@router.get("/github-repos", response_model=List[dict])
-async def get_github_repos():
-    """Get available GitHub repositories"""
+
+@router.get("/{project_id}/settings")
+async def get_project_settings(project_id: int):
+    """Get project settings"""
     try:
-        github_service = GitHubService()
-        repos = await github_service.get_user_repositories()
-        return repos
+        settings = await project_service.get_project_settings(project_id)
+        if not settings:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        return {"settings": settings}
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to get GitHub repositories: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve GitHub repositories"
-        )
+        logger.error("Error fetching project settings", 
+                   project_id=project_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch project settings")
+
+
+@router.put("/{project_id}/settings")
+async def update_project_settings(project_id: int, request: UpdateProjectSettingsRequest):
+    """Update project settings"""
+    try:
+        # Convert request to dict, excluding None values
+        settings_data = {k: v for k, v in request.dict().items() if v is not None}
+        
+        success = await project_service.update_project_settings(project_id, settings_data)
+        if not success:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        return {"message": "Project settings updated successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error updating project settings", 
+                   project_id=project_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to update project settings")
+
+
+@router.put("/{project_id}/config")
+async def update_project_config(project_id: int, request: UpdateProjectConfigRequest):
+    """Update project configuration"""
+    try:
+        # Convert request to dict, excluding None values
+        config_data = {k: v for k, v in request.dict().items() if v is not None}
+        
+        success = await project_service.update_project_config(project_id, config_data)
+        if not success:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        return {"message": "Project configuration updated successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error updating project configuration", 
+                   project_id=project_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to update project configuration")
+
+
+@router.get("/{project_id}/branches")
+async def get_repository_branches(project_id: int):
+    """Get branches for a project's repository"""
+    try:
+        branches = await project_service.get_repository_branches(project_id)
+        return {"branches": branches}
+        
+    except Exception as e:
+        logger.error("Error fetching repository branches", 
+                   project_id=project_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch repository branches")
+
+
+@router.post("/{project_id}/setup-commands/run")
+async def run_setup_commands(project_id: int, branch: str = "main"):
+    """Run setup commands for a project"""
+    try:
+        # Get project settings
+        settings = await project_service.get_project_settings(project_id)
+        if not settings or not settings.get("setup_commands"):
+            raise HTTPException(status_code=400, detail="No setup commands configured")
+        
+        # TODO: Implement setup command execution with grainchain
+        # This would involve:
+        # 1. Create a sandbox environment
+        # 2. Clone the repository on the specified branch
+        # 3. Execute the setup commands
+        # 4. Return logs and status
+        
+        return {
+            "message": "Setup commands execution started",
+            "status": "pending",
+            "branch": branch
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error running setup commands", 
+                   project_id=project_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to run setup commands")
 

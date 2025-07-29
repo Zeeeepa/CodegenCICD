@@ -1,293 +1,299 @@
 """
-GitHub API service for repository management and webhook setup
+GitHub service for project management and webhook integration
 """
 import os
+import asyncio
 import httpx
-import logging
 from typing import Dict, Any, List, Optional
+import structlog
+from backend.config import get_settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
+settings = get_settings()
+
 
 class GitHubService:
-    def __init__(self):
-        self.token = os.getenv("GITHUB_TOKEN")
-        self.base_url = "https://api.github.com"
-        
+    """Service for GitHub API interactions"""
+    
+    def __init__(self, token: Optional[str] = None):
+        self.token = token or os.getenv("GITHUB_TOKEN")
         if not self.token:
-            raise ValueError("GITHUB_TOKEN environment variable is required")
+            raise ValueError("GitHub token is required")
+        
+        self.base_url = "https://api.github.com"
+        self.headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "CodegenCICD/1.0"
+        }
+        
+        # Cloudflare webhook URL from environment
+        self.webhook_url = os.getenv("CLOUDFLARE_WORKER_URL", "https://webhook-gateway.pixeliumperfecto.workers.dev")
     
-    async def validate_repository(self, owner: str, repo: str) -> bool:
-        """Validate that a GitHub repository exists and is accessible"""
+    async def get_user_repositories(self, per_page: int = 100) -> List[Dict[str, Any]]:
+        """Get all repositories for the authenticated user"""
         try:
             async with httpx.AsyncClient() as client:
-                headers = {
-                    "Authorization": f"token {self.token}",
-                    "Accept": "application/vnd.github.v3+json"
-                }
+                repositories = []
+                page = 1
                 
-                response = await client.get(
-                    f"{self.base_url}/repos/{owner}/{repo}",
-                    headers=headers,
-                    timeout=30.0
-                )
-                
-                return response.status_code == 200
-                
-        except Exception as e:
-            logger.error(f"Error validating repository {owner}/{repo}: {e}")
-            return False
-    
-    async def get_user_repositories(self) -> List[Dict[str, Any]]:
-        """Get repositories accessible to the authenticated user"""
-        try:
-            async with httpx.AsyncClient() as client:
-                headers = {
-                    "Authorization": f"token {self.token}",
-                    "Accept": "application/vnd.github.v3+json"
-                }
-                
-                # Get user repos
-                response = await client.get(
-                    f"{self.base_url}/user/repos",
-                    headers=headers,
-                    params={
-                        "sort": "updated",
-                        "per_page": 100,
-                        "type": "all"
-                    },
-                    timeout=30.0
-                )
-                
-                response.raise_for_status()
-                repos = response.json()
-                
-                # Also get organization repos
-                org_repos = []
-                try:
-                    orgs_response = await client.get(
-                        f"{self.base_url}/user/orgs",
-                        headers=headers,
-                        timeout=30.0
+                while True:
+                    response = await client.get(
+                        f"{self.base_url}/user/repos",
+                        headers=self.headers,
+                        params={
+                            "per_page": per_page,
+                            "page": page,
+                            "sort": "updated",
+                            "direction": "desc"
+                        }
                     )
                     
-                    if orgs_response.status_code == 200:
-                        orgs = orgs_response.json()
-                        
-                        for org in orgs:
-                            org_repos_response = await client.get(
-                                f"{self.base_url}/orgs/{org['login']}/repos",
-                                headers=headers,
-                                params={"per_page": 100},
-                                timeout=30.0
-                            )
-                            
-                            if org_repos_response.status_code == 200:
-                                org_repos.extend(org_repos_response.json())
-                                
-                except Exception as e:
-                    logger.warning(f"Failed to get organization repos: {e}")
+                    if response.status_code != 200:
+                        logger.error("Failed to fetch repositories", 
+                                   status_code=response.status_code,
+                                   response=response.text)
+                        break
+                    
+                    repos = response.json()
+                    if not repos:
+                        break
+                    
+                    repositories.extend(repos)
+                    page += 1
+                    
+                    # GitHub API pagination limit
+                    if len(repos) < per_page:
+                        break
                 
-                # Combine and deduplicate
-                all_repos = repos + org_repos
-                seen = set()
-                unique_repos = []
+                logger.info("Fetched user repositories", count=len(repositories))
+                return repositories
                 
-                for repo in all_repos:
-                    if repo['id'] not in seen:
-                        seen.add(repo['id'])
-                        unique_repos.append({
-                            'id': repo['id'],
-                            'name': repo['name'],
-                            'full_name': repo['full_name'],
-                            'owner': repo['owner'],
-                            'description': repo.get('description'),
-                            'private': repo['private'],
-                            'updated_at': repo['updated_at']
-                        })
-                
-                # Sort by updated date
-                unique_repos.sort(key=lambda x: x['updated_at'], reverse=True)
-                
-                logger.info(f"Retrieved {len(unique_repos)} repositories")
-                return unique_repos
-                
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error getting repositories: {e}")
-            raise Exception(f"Failed to get repositories: {e}")
         except Exception as e:
-            logger.error(f"Error getting repositories: {e}")
+            logger.error("Error fetching user repositories", error=str(e))
             raise
     
-    async def setup_webhook(self, owner: str, repo: str, webhook_url: str) -> Dict[str, Any]:
-        """Set up a webhook for the repository"""
+    async def get_repository_branches(self, owner: str, repo: str) -> List[Dict[str, Any]]:
+        """Get all branches for a repository"""
         try:
             async with httpx.AsyncClient() as client:
-                headers = {
-                    "Authorization": f"token {self.token}",
-                    "Accept": "application/vnd.github.v3+json",
-                    "Content-Type": "application/json"
+                response = await client.get(
+                    f"{self.base_url}/repos/{owner}/{repo}/branches",
+                    headers=self.headers
+                )
+                
+                if response.status_code != 200:
+                    logger.error("Failed to fetch repository branches",
+                               owner=owner, repo=repo,
+                               status_code=response.status_code)
+                    return []
+                
+                branches = response.json()
+                logger.info("Fetched repository branches", 
+                          owner=owner, repo=repo, count=len(branches))
+                return branches
+                
+        except Exception as e:
+            logger.error("Error fetching repository branches", 
+                        owner=owner, repo=repo, error=str(e))
+            return []
+    
+    async def set_repository_webhook(self, owner: str, repo: str, 
+                                   webhook_url: Optional[str] = None) -> Dict[str, Any]:
+        """Set webhook for a repository"""
+        try:
+            webhook_url = webhook_url or self.webhook_url
+            
+            # First, check if webhook already exists
+            existing_webhook = await self.get_repository_webhook(owner, repo, webhook_url)
+            if existing_webhook:
+                logger.info("Webhook already exists", 
+                          owner=owner, repo=repo, webhook_id=existing_webhook["id"])
+                return existing_webhook
+            
+            # Create new webhook
+            webhook_config = {
+                "name": "web",
+                "active": True,
+                "events": [
+                    "pull_request",
+                    "push",
+                    "pull_request_review",
+                    "pull_request_review_comment"
+                ],
+                "config": {
+                    "url": webhook_url,
+                    "content_type": "json",
+                    "insecure_ssl": "0"
                 }
-                
-                # Check if webhook already exists
-                existing_webhooks = await self.get_webhooks(owner, repo)
-                for webhook in existing_webhooks:
-                    if webhook.get('config', {}).get('url') == webhook_url:
-                        logger.info(f"Webhook already exists for {owner}/{repo}")
-                        return webhook
-                
-                # Create new webhook
-                payload = {
-                    "name": "web",
-                    "active": True,
-                    "events": [
-                        "pull_request",
-                        "push",
-                        "pull_request_review",
-                        "issue_comment"
-                    ],
-                    "config": {
-                        "url": webhook_url,
-                        "content_type": "json",
-                        "insecure_ssl": "0"
-                    }
-                }
-                
+            }
+            
+            async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{self.base_url}/repos/{owner}/{repo}/hooks",
-                    headers=headers,
-                    json=payload,
-                    timeout=30.0
+                    headers=self.headers,
+                    json=webhook_config
                 )
                 
-                response.raise_for_status()
-                result = response.json()
-                
-                logger.info(f"Created webhook for {owner}/{repo}: {result.get('id')}")
-                return result
-                
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error setting up webhook: {e}")
-            raise Exception(f"Failed to setup webhook: {e}")
+                if response.status_code == 201:
+                    webhook = response.json()
+                    logger.info("Webhook created successfully",
+                              owner=owner, repo=repo, 
+                              webhook_id=webhook["id"], url=webhook_url)
+                    return webhook
+                else:
+                    logger.error("Failed to create webhook",
+                               owner=owner, repo=repo,
+                               status_code=response.status_code,
+                               response=response.text)
+                    raise Exception(f"Failed to create webhook: {response.status_code}")
+                    
         except Exception as e:
-            logger.error(f"Error setting up webhook: {e}")
+            logger.error("Error setting repository webhook",
+                        owner=owner, repo=repo, error=str(e))
             raise
     
-    async def get_webhooks(self, owner: str, repo: str) -> List[Dict[str, Any]]:
-        """Get existing webhooks for a repository"""
+    async def get_repository_webhook(self, owner: str, repo: str, 
+                                   webhook_url: str) -> Optional[Dict[str, Any]]:
+        """Check if webhook exists for repository"""
         try:
             async with httpx.AsyncClient() as client:
-                headers = {
-                    "Authorization": f"token {self.token}",
-                    "Accept": "application/vnd.github.v3+json"
-                }
-                
                 response = await client.get(
                     f"{self.base_url}/repos/{owner}/{repo}/hooks",
-                    headers=headers,
-                    timeout=30.0
+                    headers=self.headers
                 )
                 
-                response.raise_for_status()
-                return response.json()
+                if response.status_code != 200:
+                    return None
                 
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error getting webhooks: {e}")
-            return []
+                hooks = response.json()
+                for hook in hooks:
+                    if (hook.get("config", {}).get("url") == webhook_url and 
+                        hook.get("active", False)):
+                        return hook
+                
+                return None
+                
         except Exception as e:
-            logger.error(f"Error getting webhooks: {e}")
-            return []
+            logger.error("Error checking repository webhook",
+                        owner=owner, repo=repo, error=str(e))
+            return None
+    
+    async def remove_repository_webhook(self, owner: str, repo: str, 
+                                      webhook_id: int) -> bool:
+        """Remove webhook from repository"""
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(
+                    f"{self.base_url}/repos/{owner}/{repo}/hooks/{webhook_id}",
+                    headers=self.headers
+                )
+                
+                if response.status_code == 204:
+                    logger.info("Webhook removed successfully",
+                              owner=owner, repo=repo, webhook_id=webhook_id)
+                    return True
+                else:
+                    logger.error("Failed to remove webhook",
+                               owner=owner, repo=repo, webhook_id=webhook_id,
+                               status_code=response.status_code)
+                    return False
+                    
+        except Exception as e:
+            logger.error("Error removing repository webhook",
+                        owner=owner, repo=repo, webhook_id=webhook_id, error=str(e))
+            return False
     
     async def get_pull_request(self, owner: str, repo: str, pr_number: int) -> Optional[Dict[str, Any]]:
-        """Get pull request information"""
+        """Get pull request details"""
         try:
             async with httpx.AsyncClient() as client:
-                headers = {
-                    "Authorization": f"token {self.token}",
-                    "Accept": "application/vnd.github.v3+json"
-                }
-                
                 response = await client.get(
                     f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}",
-                    headers=headers,
-                    timeout=30.0
+                    headers=self.headers
                 )
                 
-                response.raise_for_status()
-                return response.json()
-                
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error getting pull request: {e}")
-            return None
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.error("Failed to fetch pull request",
+                               owner=owner, repo=repo, pr_number=pr_number,
+                               status_code=response.status_code)
+                    return None
+                    
         except Exception as e:
-            logger.error(f"Error getting pull request: {e}")
+            logger.error("Error fetching pull request",
+                        owner=owner, repo=repo, pr_number=pr_number, error=str(e))
             return None
     
-    async def merge_pull_request(self, owner: str, repo: str, pr_number: int, 
-                                commit_title: str = "", commit_message: str = "") -> Dict[str, Any]:
+    async def merge_pull_request(self, owner: str, repo: str, pr_number: int,
+                               commit_title: Optional[str] = None,
+                               commit_message: Optional[str] = None,
+                               merge_method: str = "merge") -> Dict[str, Any]:
         """Merge a pull request"""
         try:
+            merge_data = {
+                "merge_method": merge_method  # merge, squash, or rebase
+            }
+            
+            if commit_title:
+                merge_data["commit_title"] = commit_title
+            if commit_message:
+                merge_data["commit_message"] = commit_message
+            
             async with httpx.AsyncClient() as client:
-                headers = {
-                    "Authorization": f"token {self.token}",
-                    "Accept": "application/vnd.github.v3+json",
-                    "Content-Type": "application/json"
-                }
-                
-                payload = {
-                    "commit_title": commit_title or f"Merge pull request #{pr_number}",
-                    "commit_message": commit_message,
-                    "merge_method": "merge"
-                }
-                
                 response = await client.put(
                     f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}/merge",
-                    headers=headers,
-                    json=payload,
-                    timeout=30.0
+                    headers=self.headers,
+                    json=merge_data
                 )
                 
-                response.raise_for_status()
-                result = response.json()
-                
-                logger.info(f"Merged pull request #{pr_number} in {owner}/{repo}")
-                return result
-                
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error merging pull request: {e}")
-            raise Exception(f"Failed to merge pull request: {e}")
+                if response.status_code == 200:
+                    result = response.json()
+                    logger.info("Pull request merged successfully",
+                              owner=owner, repo=repo, pr_number=pr_number,
+                              sha=result.get("sha"))
+                    return result
+                else:
+                    logger.error("Failed to merge pull request",
+                               owner=owner, repo=repo, pr_number=pr_number,
+                               status_code=response.status_code,
+                               response=response.text)
+                    raise Exception(f"Failed to merge PR: {response.status_code}")
+                    
         except Exception as e:
-            logger.error(f"Error merging pull request: {e}")
+            logger.error("Error merging pull request",
+                        owner=owner, repo=repo, pr_number=pr_number, error=str(e))
             raise
     
-    async def create_issue_comment(self, owner: str, repo: str, issue_number: int, body: str) -> Dict[str, Any]:
+    async def create_issue_comment(self, owner: str, repo: str, issue_number: int,
+                                 comment: str) -> Dict[str, Any]:
         """Create a comment on an issue or pull request"""
         try:
             async with httpx.AsyncClient() as client:
-                headers = {
-                    "Authorization": f"token {self.token}",
-                    "Accept": "application/vnd.github.v3+json",
-                    "Content-Type": "application/json"
-                }
-                
-                payload = {"body": body}
-                
                 response = await client.post(
                     f"{self.base_url}/repos/{owner}/{repo}/issues/{issue_number}/comments",
-                    headers=headers,
-                    json=payload,
-                    timeout=30.0
+                    headers=self.headers,
+                    json={"body": comment}
                 )
                 
-                response.raise_for_status()
-                result = response.json()
-                
-                logger.info(f"Created comment on issue #{issue_number} in {owner}/{repo}")
-                return result
-                
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error creating issue comment: {e}")
-            raise Exception(f"Failed to create issue comment: {e}")
+                if response.status_code == 201:
+                    result = response.json()
+                    logger.info("Comment created successfully",
+                              owner=owner, repo=repo, issue_number=issue_number)
+                    return result
+                else:
+                    logger.error("Failed to create comment",
+                               owner=owner, repo=repo, issue_number=issue_number,
+                               status_code=response.status_code)
+                    raise Exception(f"Failed to create comment: {response.status_code}")
+                    
         except Exception as e:
-            logger.error(f"Error creating issue comment: {e}")
+            logger.error("Error creating issue comment",
+                        owner=owner, repo=repo, issue_number=issue_number, error=str(e))
             raise
+
+
+# Global instance
+github_service = GitHubService()
 
