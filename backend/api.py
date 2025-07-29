@@ -733,6 +733,26 @@ class CodegenClient:
             else None
         )
 
+        # Webhooks
+        self.webhook_handler = (
+            WebhookHandler(secret_key=self.config.webhook_secret)
+            if self.config.enable_webhooks
+            else None
+        )
+
+        # Bulk operations
+        self.bulk_manager = (
+            BulkOperationManager(
+                max_workers=self.config.bulk_max_workers,
+                batch_size=self.config.bulk_batch_size,
+            )
+            if self.config.enable_bulk_operations
+            else None
+        )
+
+        # Metrics
+        self.metrics = MetricsCollector() if self.config.enable_metrics else None
+
         logger.info(f"Initialized CodegenClient with base URL: {self.config.base_url}")
 
     def _generate_request_id(self) -> str:
@@ -1001,6 +1021,82 @@ class CodegenClient:
                 "error": str(e),
                 "timestamp": datetime.now().isoformat(),
             }
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get comprehensive client statistics"""
+        stats = {
+            "config": {
+                "base_url": self.config.base_url,
+                "timeout": self.config.timeout,
+                "max_retries": self.config.max_retries,
+                "rate_limit_requests_per_period": self.config.rate_limit_requests_per_period,
+                "caching_enabled": self.config.enable_caching,
+                "webhooks_enabled": self.config.enable_webhooks,
+                "bulk_operations_enabled": self.config.enable_bulk_operations,
+                "streaming_enabled": self.config.enable_streaming,
+                "metrics_enabled": self.config.enable_metrics,
+            }
+        }
+
+        if self.metrics:
+            client_stats = self.metrics.get_stats()
+            stats["metrics"] = {
+                "uptime_seconds": client_stats.uptime_seconds,
+                "total_requests": client_stats.total_requests,
+                "total_errors": client_stats.total_errors,
+                "error_rate": client_stats.error_rate,
+                "requests_per_minute": client_stats.requests_per_minute,
+                "average_response_time": client_stats.average_response_time,
+                "cache_hit_rate": client_stats.cache_hit_rate,
+                "status_code_distribution": client_stats.status_code_distribution,
+            }
+
+        if self.cache:
+            stats["cache"] = self.cache.get_stats()
+
+        if hasattr(self, "rate_limiter"):
+            stats["rate_limiter"] = self.rate_limiter.get_current_usage()
+
+        return stats
+
+    def clear_cache(self):
+        """Clear all cached data"""
+        if self.cache:
+            self.cache.clear()
+            logger.info("Cache cleared")
+
+    def reset_metrics(self):
+        """Reset all metrics"""
+        if self.metrics:
+            self.metrics.reset()
+            logger.info("Metrics reset")
+
+    def wait_for_completion(
+        self,
+        org_id: int,
+        agent_run_id: int,
+        poll_interval: float = 5.0,
+        timeout: Optional[float] = None,
+    ) -> AgentRunResponse:
+        """Wait for an agent run to complete with polling"""
+        start_time = time.time()
+
+        while True:
+            run = self.get_agent_run(org_id, agent_run_id)
+
+            if run.status in [
+                AgentRunStatus.COMPLETED.value,
+                AgentRunStatus.FAILED.value,
+                AgentRunStatus.CANCELLED.value,
+            ]:
+                return run
+
+            if timeout and (time.time() - start_time) > timeout:
+                raise TimeoutError(
+                    f"Agent run {agent_run_id} did not complete within {timeout} seconds"
+                )
+
+            time.sleep(poll_interval)
 
     def close(self):
         """Clean up resources"""
