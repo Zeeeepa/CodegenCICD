@@ -1,516 +1,446 @@
 """
-Configuration router for CodegenCICD Dashboard
+Configurations router for managing project settings and secrets
 """
-from fastapi import APIRouter, HTTPException, Depends
-from typing import List, Optional, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
-import structlog
-import uuid
+from sqlalchemy import select
+from typing import List, Optional
+import logging
 
-from backend.database import AsyncSessionLocal
-from backend.models import Project, ProjectConfiguration, ProjectSecret
-from backend.config import get_settings
+from backend.database import get_db
+from backend.models.configuration import ProjectConfiguration, ProjectSecret
+from backend.models.project import Project
+from backend.utils.encryption import encrypt_value, decrypt_value
+from backend.integrations.grainchain_client import GrainchainClient
 
-logger = structlog.get_logger(__name__)
-settings = get_settings()
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Pydantic models
+from pydantic import BaseModel
 
-# Dependency to get database session
-async def get_db() -> AsyncSession:
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
-
-
-# Pydantic models for request/response
-from pydantic import BaseModel, Field
-
-
-class ConfigurationCreate(BaseModel):
-    config_type: str = Field(..., description="Configuration type (repository_rules, setup_commands, planning_statement)")
-    content: str = Field(..., description="Configuration content")
-    is_active: bool = Field(default=True, description="Whether configuration is active")
-
-
-class ConfigurationUpdate(BaseModel):
-    content: Optional[str] = Field(None, description="Configuration content")
-    is_active: Optional[bool] = Field(None, description="Whether configuration is active")
-
-
-class ConfigurationResponse(BaseModel):
-    id: str
-    project_id: str
-    config_type: str
-    content: str
-    is_active: bool
-    version: int
+class ProjectConfigurationResponse(BaseModel):
+    id: int
+    project_id: int
+    repository_rules: Optional[str] = None
+    setup_commands: Optional[str] = None
+    planning_statement: Optional[str] = None
+    branch_name: str
     created_at: str
     updated_at: str
-    
+
     class Config:
         from_attributes = True
 
+class ProjectConfigurationUpdate(BaseModel):
+    repository_rules: Optional[str] = None
+    setup_commands: Optional[str] = None
+    planning_statement: Optional[str] = None
+    branch_name: Optional[str] = None
 
-class SecretCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=255, description="Secret name")
-    value: str = Field(..., min_length=1, description="Secret value (will be encrypted)")
-    description: Optional[str] = Field(None, description="Secret description")
+class ProjectSecretCreate(BaseModel):
+    key: str
+    value: str
 
-
-class SecretUpdate(BaseModel):
-    value: Optional[str] = Field(None, description="New secret value")
-    description: Optional[str] = Field(None, description="Secret description")
-    is_active: Optional[bool] = Field(None, description="Whether secret is active")
-
-
-class SecretResponse(BaseModel):
-    id: str
-    project_id: str
-    name: str
-    description: Optional[str]
-    is_active: bool
-    last_used_at: Optional[str]
+class ProjectSecretResponse(BaseModel):
+    id: int
+    project_id: int
+    key: str
+    value: str  # This will be encrypted
     created_at: str
-    updated_at: str
-    
+
     class Config:
         from_attributes = True
 
+class TestSetupCommandsRequest(BaseModel):
+    commands: str
+    branch: Optional[str] = "main"
 
-# Configuration endpoints
-@router.get("/{project_id}/configurations", response_model=List[ConfigurationResponse])
-async def list_configurations(
-    project_id: str,
-    config_type: Optional[str] = None,
-    active_only: bool = True,
+@router.get("/{project_id}", response_model=ProjectConfigurationResponse)
+async def get_project_configuration(
+    project_id: int,
     db: AsyncSession = Depends(get_db)
-) -> List[ConfigurationResponse]:
-    """List configurations for a project"""
+):
+    """Get project configuration"""
     try:
-        # Validate UUID
-        try:
-            uuid.UUID(project_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid project ID format")
-        
-        # Check if project exists
-        project_query = select(Project).where(Project.id == project_id)
-        result = await db.execute(project_query)
+        # Verify project exists
+        result = await db.execute(select(Project).where(Project.id == project_id))
         project = result.scalar_one_or_none()
         
         if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
         
-        # Build query
-        query = select(ProjectConfiguration).where(ProjectConfiguration.project_id == project_id)
+        # Get configuration
+        result = await db.execute(
+            select(ProjectConfiguration).where(ProjectConfiguration.project_id == project_id)
+        )
+        config = result.scalar_one_or_none()
         
-        if config_type:
-            query = query.where(ProjectConfiguration.config_type == config_type)
+        if not config:
+            # Create default configuration
+            config = ProjectConfiguration(
+                project_id=project_id,
+                repository_rules="",
+                setup_commands="",
+                planning_statement="",
+                branch_name="main"
+            )
+            db.add(config)
+            await db.commit()
+            await db.refresh(config)
         
-        if active_only:
-            query = query.where(ProjectConfiguration.is_active == True)
-        
-        query = query.order_by(ProjectConfiguration.config_type, ProjectConfiguration.version.desc())
-        
-        # Execute query
-        result = await db.execute(query)
-        configurations = result.scalars().all()
-        
-        logger.info("Listed configurations", 
-                   project_id=project_id,
-                   count=len(configurations),
-                   config_type=config_type)
-        
-        return [ConfigurationResponse.from_orm(config) for config in configurations]
+        return ProjectConfigurationResponse.model_validate(config)
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to list configurations", project_id=project_id, error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to retrieve configurations")
+        logger.error(f"Failed to get project configuration: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve project configuration"
+        )
 
-
-@router.post("/{project_id}/configurations", response_model=ConfigurationResponse, status_code=201)
-async def create_configuration(
-    project_id: str,
-    config_data: ConfigurationCreate,
+@router.put("/{project_id}", response_model=ProjectConfigurationResponse)
+async def update_project_configuration(
+    project_id: int,
+    config_data: ProjectConfigurationUpdate,
     db: AsyncSession = Depends(get_db)
-) -> ConfigurationResponse:
-    """Create a new configuration"""
+):
+    """Update project configuration"""
     try:
-        # Validate UUID
-        try:
-            uuid.UUID(project_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid project ID format")
-        
-        # Check if project exists
-        project_query = select(Project).where(Project.id == project_id)
-        result = await db.execute(project_query)
+        # Verify project exists
+        result = await db.execute(select(Project).where(Project.id == project_id))
         project = result.scalar_one_or_none()
         
         if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        
-        # Check if configuration type already exists and is active
-        existing_query = select(ProjectConfiguration).where(
-            and_(
-                ProjectConfiguration.project_id == project_id,
-                ProjectConfiguration.config_type == config_data.config_type,
-                ProjectConfiguration.is_active == True
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
             )
+        
+        # Get or create configuration
+        result = await db.execute(
+            select(ProjectConfiguration).where(ProjectConfiguration.project_id == project_id)
         )
-        result = await db.execute(existing_query)
-        existing_config = result.scalar_one_or_none()
+        config = result.scalar_one_or_none()
         
-        if existing_config:
-            # Deactivate existing configuration
-            existing_config.is_active = False
-        
-        # Get next version number
-        version_query = select(ProjectConfiguration).where(
-            and_(
-                ProjectConfiguration.project_id == project_id,
-                ProjectConfiguration.config_type == config_data.config_type
+        if not config:
+            config = ProjectConfiguration(
+                project_id=project_id,
+                repository_rules="",
+                setup_commands="",
+                planning_statement="",
+                branch_name="main"
             )
-        ).order_by(ProjectConfiguration.version.desc()).limit(1)
-        
-        result = await db.execute(version_query)
-        latest_config = result.scalar_one_or_none()
-        next_version = (latest_config.version + 1) if latest_config else 1
-        
-        # Create new configuration
-        configuration = ProjectConfiguration(
-            project_id=project_id,
-            config_type=config_data.config_type,
-            content=config_data.content,
-            is_active=config_data.is_active,
-            version=next_version
-        )
-        
-        db.add(configuration)
-        await db.commit()
-        await db.refresh(configuration)
-        
-        logger.info("Created configuration", 
-                   project_id=project_id,
-                   config_type=config_data.config_type,
-                   version=next_version)
-        
-        return ConfigurationResponse.from_orm(configuration)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to create configuration", project_id=project_id, error=str(e))
-        await db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to create configuration")
-
-
-@router.get("/{project_id}/configurations/{config_id}", response_model=ConfigurationResponse)
-async def get_configuration(
-    project_id: str,
-    config_id: str,
-    db: AsyncSession = Depends(get_db)
-) -> ConfigurationResponse:
-    """Get a specific configuration"""
-    try:
-        # Validate UUIDs
-        try:
-            uuid.UUID(project_id)
-            uuid.UUID(config_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid ID format")
-        
-        # Get configuration
-        query = select(ProjectConfiguration).where(
-            and_(
-                ProjectConfiguration.id == config_id,
-                ProjectConfiguration.project_id == project_id
-            )
-        )
-        result = await db.execute(query)
-        configuration = result.scalar_one_or_none()
-        
-        if not configuration:
-            raise HTTPException(status_code=404, detail="Configuration not found")
-        
-        return ConfigurationResponse.from_orm(configuration)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to get configuration", 
-                    project_id=project_id, 
-                    config_id=config_id, 
-                    error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to retrieve configuration")
-
-
-@router.put("/{project_id}/configurations/{config_id}", response_model=ConfigurationResponse)
-async def update_configuration(
-    project_id: str,
-    config_id: str,
-    config_data: ConfigurationUpdate,
-    db: AsyncSession = Depends(get_db)
-) -> ConfigurationResponse:
-    """Update a configuration"""
-    try:
-        # Validate UUIDs
-        try:
-            uuid.UUID(project_id)
-            uuid.UUID(config_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid ID format")
-        
-        # Get configuration
-        query = select(ProjectConfiguration).where(
-            and_(
-                ProjectConfiguration.id == config_id,
-                ProjectConfiguration.project_id == project_id
-            )
-        )
-        result = await db.execute(query)
-        configuration = result.scalar_one_or_none()
-        
-        if not configuration:
-            raise HTTPException(status_code=404, detail="Configuration not found")
+            db.add(config)
         
         # Update fields
-        update_data = config_data.dict(exclude_unset=True)
+        update_data = config_data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
-            setattr(configuration, field, value)
+            setattr(config, field, value)
         
         await db.commit()
-        await db.refresh(configuration)
+        await db.refresh(config)
         
-        logger.info("Updated configuration", 
-                   project_id=project_id,
-                   config_id=config_id,
-                   updated_fields=list(update_data.keys()))
-        
-        return ConfigurationResponse.from_orm(configuration)
+        logger.info(f"Updated configuration for project {project_id}")
+        return ProjectConfigurationResponse.model_validate(config)
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to update configuration", 
-                    project_id=project_id, 
-                    config_id=config_id, 
-                    error=str(e))
-        await db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to update configuration")
-
-
-@router.delete("/{project_id}/configurations/{config_id}", status_code=204)
-async def delete_configuration(
-    project_id: str,
-    config_id: str,
-    db: AsyncSession = Depends(get_db)
-) -> None:
-    """Delete a configuration (soft delete by setting is_active=False)"""
-    try:
-        # Validate UUIDs
-        try:
-            uuid.UUID(project_id)
-            uuid.UUID(config_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid ID format")
-        
-        # Get configuration
-        query = select(ProjectConfiguration).where(
-            and_(
-                ProjectConfiguration.id == config_id,
-                ProjectConfiguration.project_id == project_id
-            )
+        logger.error(f"Failed to update project configuration: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update project configuration"
         )
-        result = await db.execute(query)
-        configuration = result.scalar_one_or_none()
-        
-        if not configuration:
-            raise HTTPException(status_code=404, detail="Configuration not found")
-        
-        # Soft delete
-        configuration.is_active = False
-        await db.commit()
-        
-        logger.info("Deleted configuration", 
-                   project_id=project_id,
-                   config_id=config_id)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to delete configuration", 
-                    project_id=project_id, 
-                    config_id=config_id, 
-                    error=str(e))
-        await db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to delete configuration")
 
-
-# Secret endpoints (placeholder implementations - encryption not yet implemented)
-@router.get("/{project_id}/secrets", response_model=List[SecretResponse])
-async def list_secrets(
-    project_id: str,
-    active_only: bool = True,
+@router.get("/{project_id}/secrets", response_model=List[ProjectSecretResponse])
+async def get_project_secrets(
+    project_id: int,
     db: AsyncSession = Depends(get_db)
-) -> List[SecretResponse]:
-    """List secrets for a project (values not included for security)"""
+):
+    """Get project secrets (values will be encrypted)"""
     try:
-        # Validate UUID
-        try:
-            uuid.UUID(project_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid project ID format")
-        
-        # Check if project exists
-        project_query = select(Project).where(Project.id == project_id)
-        result = await db.execute(project_query)
+        # Verify project exists
+        result = await db.execute(select(Project).where(Project.id == project_id))
         project = result.scalar_one_or_none()
         
         if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
         
-        # Build query
-        query = select(ProjectSecret).where(ProjectSecret.project_id == project_id)
-        
-        if active_only:
-            query = query.where(ProjectSecret.is_active == True)
-        
-        query = query.order_by(ProjectSecret.name)
-        
-        # Execute query
-        result = await db.execute(query)
+        # Get secrets
+        result = await db.execute(
+            select(ProjectSecret).where(ProjectSecret.project_id == project_id)
+        )
         secrets = result.scalars().all()
         
-        logger.info("Listed secrets", 
-                   project_id=project_id,
-                   count=len(secrets))
+        # Decrypt values for response
+        decrypted_secrets = []
+        for secret in secrets:
+            try:
+                decrypted_value = decrypt_value(secret.value)
+                decrypted_secrets.append(ProjectSecretResponse(
+                    id=secret.id,
+                    project_id=secret.project_id,
+                    key=secret.key,
+                    value=decrypted_value,
+                    created_at=secret.created_at.isoformat()
+                ))
+            except Exception as e:
+                logger.error(f"Failed to decrypt secret {secret.key}: {e}")
+                # Skip corrupted secrets
+                continue
         
-        return [SecretResponse.from_orm(secret) for secret in secrets]
+        return decrypted_secrets
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to list secrets", project_id=project_id, error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to retrieve secrets")
+        logger.error(f"Failed to get project secrets: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve project secrets"
+        )
 
-
-@router.post("/{project_id}/secrets", response_model=SecretResponse, status_code=201)
-async def create_secret(
-    project_id: str,
-    secret_data: SecretCreate,
+@router.post("/{project_id}/secrets", response_model=ProjectSecretResponse)
+async def create_project_secret(
+    project_id: int,
+    secret_data: ProjectSecretCreate,
     db: AsyncSession = Depends(get_db)
-) -> SecretResponse:
-    """Create a new secret"""
+):
+    """Create a new project secret"""
     try:
-        # Validate UUID
-        try:
-            uuid.UUID(project_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid project ID format")
-        
-        # Check if project exists
-        project_query = select(Project).where(Project.id == project_id)
-        result = await db.execute(project_query)
+        # Verify project exists
+        result = await db.execute(select(Project).where(Project.id == project_id))
         project = result.scalar_one_or_none()
         
         if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
         
-        # Check if secret name already exists
-        existing_query = select(ProjectSecret).where(
-            and_(
+        # Check if secret key already exists
+        result = await db.execute(
+            select(ProjectSecret).where(
                 ProjectSecret.project_id == project_id,
-                ProjectSecret.name == secret_data.name,
-                ProjectSecret.is_active == True
+                ProjectSecret.key == secret_data.key
             )
         )
-        result = await db.execute(existing_query)
         existing_secret = result.scalar_one_or_none()
         
         if existing_secret:
-            raise HTTPException(status_code=400, detail=f"Secret '{secret_data.name}' already exists")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Secret with this key already exists"
+            )
         
-        # TODO: Implement proper encryption
-        # For now, we'll store a placeholder encrypted value
-        encrypted_value = f"ENCRYPTED:{secret_data.value}"  # Placeholder
+        # Encrypt the value
+        encrypted_value = encrypt_value(secret_data.value)
         
         # Create secret
         secret = ProjectSecret(
             project_id=project_id,
-            name=secret_data.name,
-            encrypted_value=encrypted_value,
-            description=secret_data.description
+            key=secret_data.key,
+            value=encrypted_value
         )
         
         db.add(secret)
         await db.commit()
         await db.refresh(secret)
         
-        logger.info("Created secret", 
-                   project_id=project_id,
-                   secret_name=secret_data.name)
+        logger.info(f"Created secret {secret_data.key} for project {project_id}")
         
-        return SecretResponse.from_orm(secret)
+        # Return with decrypted value
+        return ProjectSecretResponse(
+            id=secret.id,
+            project_id=secret.project_id,
+            key=secret.key,
+            value=secret_data.value,  # Return original value
+            created_at=secret.created_at.isoformat()
+        )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to create secret", project_id=project_id, error=str(e))
-        await db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to create secret")
+        logger.error(f"Failed to create project secret: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create project secret"
+        )
 
-
-@router.delete("/{project_id}/secrets/{secret_id}", status_code=204)
-async def delete_secret(
-    project_id: str,
-    secret_id: str,
+@router.put("/{project_id}/secrets/{secret_id}", response_model=ProjectSecretResponse)
+async def update_project_secret(
+    project_id: int,
+    secret_id: int,
+    secret_data: ProjectSecretCreate,
     db: AsyncSession = Depends(get_db)
-) -> None:
-    """Delete a secret (soft delete by setting is_active=False)"""
+):
+    """Update a project secret"""
     try:
-        # Validate UUIDs
-        try:
-            uuid.UUID(project_id)
-            uuid.UUID(secret_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid ID format")
-        
         # Get secret
-        query = select(ProjectSecret).where(
-            and_(
+        result = await db.execute(
+            select(ProjectSecret).where(
                 ProjectSecret.id == secret_id,
                 ProjectSecret.project_id == project_id
             )
         )
-        result = await db.execute(query)
         secret = result.scalar_one_or_none()
         
         if not secret:
-            raise HTTPException(status_code=404, detail="Secret not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Secret not found"
+            )
         
-        # Soft delete
-        secret.is_active = False
+        # Encrypt the new value
+        encrypted_value = encrypt_value(secret_data.value)
+        
+        # Update secret
+        secret.key = secret_data.key
+        secret.value = encrypted_value
+        
         await db.commit()
+        await db.refresh(secret)
         
-        logger.info("Deleted secret", 
-                   project_id=project_id,
-                   secret_id=secret_id)
+        logger.info(f"Updated secret {secret_data.key} for project {project_id}")
+        
+        # Return with decrypted value
+        return ProjectSecretResponse(
+            id=secret.id,
+            project_id=secret.project_id,
+            key=secret.key,
+            value=secret_data.value,  # Return original value
+            created_at=secret.created_at.isoformat()
+        )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to delete secret", 
-                    project_id=project_id, 
-                    secret_id=secret_id, 
-                    error=str(e))
-        await db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to delete secret")
+        logger.error(f"Failed to update project secret: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update project secret"
+        )
+
+@router.delete("/{project_id}/secrets/{secret_id}")
+async def delete_project_secret(
+    project_id: int,
+    secret_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a project secret"""
+    try:
+        # Get secret
+        result = await db.execute(
+            select(ProjectSecret).where(
+                ProjectSecret.id == secret_id,
+                ProjectSecret.project_id == project_id
+            )
+        )
+        secret = result.scalar_one_or_none()
+        
+        if not secret:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Secret not found"
+            )
+        
+        await db.delete(secret)
+        await db.commit()
+        
+        logger.info(f"Deleted secret {secret.key} for project {project_id}")
+        return {"message": "Secret deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete project secret: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete project secret"
+        )
+
+@router.post("/{project_id}/test-setup")
+async def test_setup_commands(
+    project_id: int,
+    test_data: TestSetupCommandsRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Test setup commands in a sandbox environment"""
+    try:
+        # Verify project exists
+        result = await db.execute(select(Project).where(Project.id == project_id))
+        project = result.scalar_one_or_none()
+        
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        # Create temporary snapshot for testing
+        grainchain = GrainchainClient()
+        
+        # Get project secrets for environment
+        result = await db.execute(
+            select(ProjectSecret).where(ProjectSecret.project_id == project_id)
+        )
+        secrets = result.scalars().all()
+        
+        environment_vars = {}
+        for secret in secrets:
+            try:
+                decrypted_value = decrypt_value(secret.value)
+                environment_vars[secret.key] = decrypted_value
+            except Exception as e:
+                logger.warning(f"Failed to decrypt secret {secret.key}: {e}")
+        
+        # Create snapshot
+        snapshot_config = {
+            "tools": ["git", "node", "python"],
+            "environment_variables": environment_vars
+        }
+        
+        snapshot_id = await grainchain.create_snapshot(snapshot_config)
+        
+        try:
+            # Clone repository
+            repo_url = f"https://github.com/{project.github_owner}/{project.github_repo}.git"
+            await grainchain.clone_repository(snapshot_id, repo_url, test_data.branch)
+            
+            # Execute setup commands
+            commands = [cmd.strip() for cmd in test_data.commands.split('\n') if cmd.strip()]
+            result = await grainchain.execute_commands(snapshot_id, commands)
+            
+            # Clean up snapshot
+            await grainchain.delete_snapshot(snapshot_id)
+            
+            return {
+                "success": result.get("exit_code", 1) == 0,
+                "output": result.get("output", ""),
+                "error": result.get("error", ""),
+                "duration": result.get("duration", 0)
+            }
+            
+        except Exception as e:
+            # Clean up snapshot on error
+            await grainchain.delete_snapshot(snapshot_id)
+            raise e
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to test setup commands: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to test setup commands: {str(e)}"
+        )
 
