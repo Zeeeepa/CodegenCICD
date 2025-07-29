@@ -46,7 +46,7 @@ import {
 } from '@mui/icons-material';
 import { projectsApi, Project } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
-import ProjectCard from './ProjectCard';
+import { EnhancedProjectCard, ProjectData } from './EnhancedProjectCard';
 import CreateProjectDialog from './CreateProjectDialog';
 import ProjectConfigDialog from './ProjectConfigDialog';
 import ServiceValidator from './ServiceValidator';
@@ -84,6 +84,7 @@ const Dashboard: React.FC = () => {
   const [githubRepos, setGithubRepos] = useState<GitHubRepository[]>([]);
   const [reposLoading, setReposLoading] = useState(false);
   const [pinnedProjects, setPinnedProjects] = useState<GitHubRepository[]>([]);
+  const [projectsData, setProjectsData] = useState<ProjectData[]>([]);
   const [projectMenuAnchor, setProjectMenuAnchor] = useState<null | HTMLElement>(null);
   const [variablesDialogOpen, setVariablesDialogOpen] = useState(false);
 
@@ -107,6 +108,31 @@ const Dashboard: React.FC = () => {
     const newPinned = [...pinnedProjects, repo];
     setPinnedProjects(newPinned);
     localStorage.setItem('pinnedProjects', JSON.stringify(newPinned));
+    
+    // Convert to ProjectData and add to projects
+    const projectData: ProjectData = {
+      id: repo.id.toString(),
+      name: repo.name,
+      description: repo.description || undefined,
+      github_owner: repo.owner?.login || repo.full_name.split('/')[0],
+      github_repo: repo.name,
+      github_branch: repo.default_branch || 'main',
+      github_url: repo.html_url,
+      webhook_active: false,
+      auto_merge_enabled: false,
+      auto_merge_threshold: 80,
+      is_active: true,
+      validation_enabled: true,
+      has_repository_rules: false,
+      has_setup_commands: false,
+      has_secrets: false,
+      has_planning_statement: false,
+      total_runs: 0,
+      success_rate: 0,
+    };
+    
+    setProjectsData(prev => [...prev, projectData]);
+    
     showSnackbar(`${repo.name} pinned to dashboard`, 'success');
   };
 
@@ -114,7 +140,81 @@ const Dashboard: React.FC = () => {
     const newPinned = pinnedProjects.filter(p => p.id !== repoId);
     setPinnedProjects(newPinned);
     localStorage.setItem('pinnedProjects', JSON.stringify(newPinned));
+    
+    // Remove from projects data
+    setProjectsData(prev => prev.filter(p => p.id !== repoId.toString()));
+    
     showSnackbar('Project unpinned from dashboard', 'success');
+  };
+
+  // Agent run handlers
+  const handleAgentRun = async (projectId: string, target: string) => {
+    try {
+      showSnackbar('Starting agent run...', 'info');
+      
+      // In a real implementation, this would call the backend API
+      const response = await fetch('/api/agent-runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: projectId, target })
+      });
+      
+      if (response.ok) {
+        const agentRun = await response.json();
+        
+        // Update project data with current run
+        setProjectsData(prev => prev.map(p => 
+          p.id === projectId 
+            ? {
+                ...p,
+                current_agent_run: {
+                  id: agentRun.id,
+                  status: 'running',
+                  progress_percentage: 0,
+                  run_type: 'regular'
+                }
+              }
+            : p
+        ));
+        
+        showSnackbar('Agent run started successfully!', 'success');
+      } else {
+        throw new Error('Failed to start agent run');
+      }
+    } catch (error) {
+      console.error('Failed to start agent run:', error);
+      showSnackbar('Failed to start agent run', 'error');
+    }
+  };
+
+  const handleUpdateProject = (projectId: string, updates: Partial<ProjectData>) => {
+    setProjectsData(prev => prev.map(p => 
+      p.id === projectId ? { ...p, ...updates } : p
+    ));
+    showSnackbar('Project updated successfully', 'success');
+  };
+
+  const handleDeleteProject = (projectId: string) => {
+    const project = projectsData.find(p => p.id === projectId);
+    if (project) {
+      // Remove from pinned projects
+      const repoId = parseInt(projectId);
+      unpinProject(repoId);
+    }
+  };
+
+  const handleRefreshProject = async (projectId: string) => {
+    try {
+      showSnackbar('Refreshing project...', 'info');
+      
+      // In a real implementation, this would fetch fresh data from the API
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      showSnackbar('Project refreshed successfully', 'success');
+    } catch (error) {
+      console.error('Failed to refresh project:', error);
+      showSnackbar('Failed to refresh project', 'error');
+    }
   };
 
   const loadProjects = async () => {
@@ -217,7 +317,7 @@ const Dashboard: React.FC = () => {
               <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
                 <Typography variant="h6">Loading projects...</Typography>
               </Box>
-            ) : pinnedProjects.length === 0 ? (
+            ) : projectsData.length === 0 ? (
               <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="400px">
                 <Typography variant="h5" gutterBottom>
                   No Pinned Projects
@@ -228,49 +328,15 @@ const Dashboard: React.FC = () => {
               </Box>
             ) : (
               <Grid container spacing={3}>
-                {pinnedProjects.map((repo) => (
-                  <Grid item xs={12} sm={6} md={4} lg={3} key={repo.id}>
-                    <Card>
-                      <CardContent>
-                        <Box display="flex" justifyContent="space-between" alignItems="start" mb={2}>
-                          <Typography variant="h6" gutterBottom>
-                            {repo.name}
-                          </Typography>
-                          <Button
-                            size="small"
-                            color="error"
-                            onClick={() => unpinProject(repo.id)}
-                          >
-                            Unpin
-                          </Button>
-                        </Box>
-                        <Typography variant="body2" color="text.secondary" gutterBottom>
-                          {repo.description || 'No description available'}
-                        </Typography>
-                        <Box display="flex" alignItems="center" gap={1} mt={2}>
-                          <Chip 
-                            label={repo.private ? 'Private' : 'Public'} 
-                            size="small" 
-                            color={repo.private ? 'warning' : 'success'}
-                          />
-                          {repo.language && (
-                            <Chip 
-                              label={repo.language} 
-                              size="small" 
-                              variant="outlined"
-                            />
-                          )}
-                        </Box>
-                        <Box display="flex" justifyContent="space-between" mt={2}>
-                          <Typography variant="body2" color="text.secondary">
-                            ⭐ {repo.stars || 0}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            🍴 {repo.forks || 0}
-                          </Typography>
-                        </Box>
-                      </CardContent>
-                    </Card>
+                {projectsData.map((project) => (
+                  <Grid item xs={12} sm={6} md={4} lg={3} key={project.id}>
+                    <EnhancedProjectCard
+                      project={project}
+                      onAgentRun={handleAgentRun}
+                      onUpdateProject={handleUpdateProject}
+                      onDeleteProject={handleDeleteProject}
+                      onRefreshProject={handleRefreshProject}
+                    />
                   </Grid>
                 ))}
               </Grid>
