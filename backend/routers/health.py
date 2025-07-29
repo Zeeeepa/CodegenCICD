@@ -229,7 +229,7 @@ async def health_check():
 @router.get("/liveness")
 async def liveness_check():
     """
-    Simple liveness check for Kubernetes/Docker
+    Simple liveness check for monitoring systems
     Returns 200 if the application is running
     """
     return {"status": "alive", "timestamp": datetime.now(timezone.utc)}
@@ -238,7 +238,7 @@ async def liveness_check():
 @router.get("/readiness")
 async def readiness_check():
     """
-    Readiness check for Kubernetes/Docker
+    Readiness check for monitoring systems
     Returns 200 only if critical services are available
     """
     try:
@@ -299,4 +299,3 @@ async def health_metrics():
         "version": getattr(settings, 'version', '1.0.0'),
         "checks": health_data.checks
     }
-

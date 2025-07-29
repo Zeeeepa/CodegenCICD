@@ -1,71 +1,80 @@
-# 🚀 CodegenCICD Dashboard - Complete Unified System
+# 🚀 CodegenCICD Dashboard
 
-**AI-Powered CI/CD Flow Cycle Project Management System**
+**AI-Powered CI/CD Management System with Intelligent Validation Pipeline**
 
-A comprehensive dashboard for managing AI-driven development workflows using the Codegen API, featuring real-time project management, automated validation pipelines, and intelligent code analysis. This unified system combines the best features from multiple implementations into a single, production-ready solution.
+[![Python](https://img.shields.io/badge/Python-3.8+-blue)](https://python.org)
+[![React](https://img.shields.io/badge/React-18+-blue)](https://reactjs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue)](https://typescriptlang.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-Latest-green)](https://fastapi.tiangolo.com)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-![CodegenCICD Dashboard](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)
-![License](https://img.shields.io/badge/License-MIT-blue)
-![Python](https://img.shields.io/badge/Python-3.11+-blue)
-![React](https://img.shields.io/badge/React-18+-blue)
-![Docker](https://img.shields.io/badge/Docker-Ready-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-Latest-green)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue)
+## 🌟 **Overview**
 
-## 🎯 **Overview**
+CodegenCICD Dashboard is a comprehensive AI-powered CI/CD management system that transforms natural language requirements into production-ready code through an intelligent validation pipeline. Built with modern web technologies and integrated with cutting-edge AI services.
 
-CodegenCICD Dashboard is the ultimate AI-powered CI/CD management system that automates the entire development workflow from code generation to deployment validation. It integrates multiple AI services and tools to provide a seamless, intelligent development experience with **three configuration tiers** to match your needs.
+### **🎯 Key Features**
 
-### **🌟 Key Features**
-
-✅ **Complete CI/CD Automation** - End-to-end workflow automation with AI agents  
-✅ **7-Step Validation Pipeline** - Comprehensive testing with grainchain + web-eval-agent + graph-sitter  
-✅ **Real-time WebSocket Updates** - Live progress tracking and notifications  
-✅ **Tiered Configuration System** - Basic → Intermediate → Advanced feature sets  
-✅ **4-Tab Project Configuration** - Repository rules, setup commands, secrets, planning statements  
-✅ **Auto-merge Validated PRs** - Intelligent PR management and deployment  
-✅ **Multi-language Code Analysis** - TypeScript, JavaScript, Python, Rust, Go support  
-✅ **Production-Ready Deployment** - Docker Compose with monitoring and scaling  
+✅ **AI-Powered Development** - Natural language to code generation via Codegen API  
+✅ **GitHub Integration** - Seamless repository management and PR automation  
+✅ **Intelligent Validation Pipeline** - 7-step automated testing and deployment  
+✅ **Real-time Dashboard** - Live project monitoring with WebSocket updates  
+✅ **4-Tab Configuration System** - Repository rules, setup commands, secrets, and planning  
+✅ **Auto-merge Capabilities** - Validated PRs can be automatically merged  
+✅ **Multi-Service Integration** - Grainchain, Graph-sitter, Web-eval-agent, Gemini AI  
 
 ## 🏗️ **Architecture**
 
-### **System Components**
-
 ```mermaid
 graph TB
-    A[React Frontend] --> B[FastAPI Backend]
-    B --> C[PostgreSQL Database]
-    B --> D[Redis Cache]
-    B --> E[Celery Workers]
+    A[React TypeScript Frontend] --> B[FastAPI Backend]
+    B --> C[Codegen API]
+    B --> D[GitHub API]
+    B --> E[Grainchain Sandboxing]
+    B --> F[Graph-sitter Analysis]
+    B --> G[Web-eval-agent Testing]
+    B --> H[Gemini AI Validation]
+    B --> I[Cloudflare Workers]
     
-    F[Codegen API] --> B
-    G[GitHub API] --> B
-    H[Gemini API] --> B
-    I[Cloudflare Workers] --> B
-    
-    J[grainchain] --> K[Validation Pipeline]
-    L[web-eval-agent] --> K
-    M[graph-sitter] --> K
-    K --> B
-    
-    N[Docker Compose] --> O[Production Deployment]
+    subgraph "Validation Pipeline"
+        J[Snapshot Creation] --> K[PR Clone]
+        K --> L[Deployment]
+        L --> M[Success Validation]
+        M --> N[UI Testing]
+        N --> O[Error Handling]
+        O --> P[Auto-merge]
+    end
 ```
 
-### **Configuration Tiers**
+## 🛠️ **Technology Stack**
 
-| Tier | Features | Use Case |
-|------|----------|----------|
-| **Basic** | Core functionality, projects, agent runs, basic validation | Development, small teams |
-| **Intermediate** | WebSocket updates, background tasks, advanced validation | Staging, growing teams |
-| **Advanced** | Monitoring, SSL, email notifications, enterprise security | Production, enterprise |
+### **Frontend**
+- **React 18** with TypeScript
+- **Material-UI** for modern components
+- **WebSocket** for real-time updates
+- **Axios** for API communication
+
+### **Backend**
+- **FastAPI** with Python 3.8+
+- **WebSocket** support for live updates
+- **RESTful API** architecture
+- **Async/await** for performance
+
+### **External Integrations**
+- **[Codegen API](https://docs.codegen.com/api-reference)** - AI agent coordination
+- **[Grainchain](https://github.com/Zeeeepa/grainchain)** - Sandboxing and snapshots
+- **[Graph-sitter](https://github.com/Zeeeepa/graph-sitter)** - Code quality analysis
+- **[Web-eval-agent](https://github.com/Zeeeepa/web-eval-agent)** - UI testing and automation
+- **GitHub API** - Repository management
+- **Gemini AI** - Intelligent validation
+- **Cloudflare Workers** - Webhook gateway
 
 ## 🚀 **Quick Start**
 
 ### **Prerequisites**
 
-- Docker & Docker Compose
-- Node.js 18+ (for local development)
-- Python 3.11+ (for local development)
+- **Python 3.8+** - [Download Python](https://python.org/downloads)
+- **Node.js 16+** - [Download Node.js](https://nodejs.org)
+- **Git** - [Download Git](https://git-scm.com)
 
 ### **1. Clone Repository**
 
@@ -74,645 +83,266 @@ git clone https://github.com/Zeeeepa/CodegenCICD.git
 cd CodegenCICD
 ```
 
-### **2. Environment Setup**
+### **2. Install Dependencies**
 
 ```bash
-# Copy environment template
+./deploy.sh
+```
+
+This script will:
+- ✅ Check system requirements
+- ✅ Create Python virtual environment
+- ✅ Install Python dependencies
+- ✅ Install Node.js dependencies
+- ✅ Create configuration templates
+- ✅ Set up logging directories
+
+### **3. Configure Environment**
+
+```bash
 cp .env.example .env
-
-# Edit .env with your API keys and configuration
-nano .env
+nano .env  # Edit with your API keys
 ```
 
-**Required Configuration:**
+**Required API Keys:**
 ```bash
-# Configuration Tier (basic/intermediate/advanced)
-CONFIG_TIER=basic
-
-# Codegen API
-CODEGEN_ORG_ID=323
-CODEGEN_API_TOKEN=sk-your-codegen-api-token
-
-# GitHub Integration
-GITHUB_TOKEN=github_pat_your-github-token
-
-# AI Services
-GEMINI_API_KEY=AIzaSy-your-gemini-api-key
-
-# Security
-SECRET_KEY=your-super-secret-key-min-32-chars
-ENCRYPTION_KEY=your-encryption-key-base64-32-bytes
-ENCRYPTION_SALT=your-encryption-salt-unique-value
-
-# Database
-POSTGRES_PASSWORD=secure-password-change-in-production
+CODEGEN_ORG_ID=your_org_id_here
+CODEGEN_API_TOKEN=your_codegen_api_token_here
+GITHUB_TOKEN=your_github_token_here
+GEMINI_API_KEY=your_gemini_api_key_here
+CLOUDFLARE_API_KEY=your_cloudflare_api_key_here
+CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id_here
+CLOUDFLARE_WORKER_URL=your_cloudflare_worker_url_here
 ```
 
-### **3. Deploy with Docker**
+### **4. Launch Dashboard**
 
 ```bash
-# Basic setup (development)
-docker-compose up -d
-
-# Intermediate setup (with background workers)
-docker-compose --profile intermediate up -d
-
-# Advanced setup (with monitoring)
-docker-compose --profile advanced up -d
-
-# Production setup (with nginx)
-docker-compose --profile production up -d
+./start.sh
 ```
 
-### **4. Access Dashboard**
+The script will:
+- ✅ Validate environment variables
+- ✅ Prompt for missing values
+- ✅ Check port availability
+- ✅ Start backend and frontend services
+- ✅ Provide access URLs and monitoring info
 
-- **Dashboard**: http://localhost:3000
+### **5. Access Dashboard**
+
+- **Frontend**: http://localhost:3001
+- **Backend API**: http://localhost:8000
 - **API Docs**: http://localhost:8000/docs
-- **Health Check**: http://localhost:8000/health
-- **Monitoring**: http://localhost:3001 (Grafana, advanced tier)
 
-## 🎮 **Usage Guide**
+## 📋 **Usage Guide**
 
-### **1. Project Management**
+### **Project Management**
 
-#### **Create Project**
-1. Click "Create Project" in dashboard
-2. Enter GitHub repository details
-3. Configure webhook URL (auto-generated)
-4. Set initial configuration
+1. **Select Project**: Choose from GitHub repositories dropdown
+2. **Configure Settings**: Use the 4-tab configuration system
+3. **Run AI Agent**: Click "Agent Run" button and describe your goal
+4. **Monitor Progress**: Watch real-time updates via WebSocket
+5. **Review Results**: Handle regular/plan/PR responses appropriately
 
-#### **4-Tab Project Configuration**
+### **Configuration Tabs**
 
-**🔧 Repository Rules Tab**
+#### **1. Repository Rules**
+Define custom rules for AI agent behavior:
 ```
-- Use TypeScript for all new code
-- Follow existing code style conventions
-- Add proper error handling and logging
-- Include unit tests for new features
-- Document all public APIs
+- Follow company coding standards
+- Use TypeScript for all new components
+- Include comprehensive error handling
+- Write unit tests for all functions
 ```
 
-**⚙️ Setup Commands Tab**
+#### **2. Setup Commands**
+Specify deployment commands:
 ```bash
 cd backend
-python -m pip install -r requirements.txt
-python manage.py migrate
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 cd ../frontend
 npm install
 npm run build
-npm start
 ```
 
-**🔐 Secrets Tab**
-```
-CODEGEN_ORG_ID=323
-CODEGEN_TOKEN=sk-your-token
-GITHUB_TOKEN=github_pat_your-token
-GEMINI_API_KEY=your-gemini-key
-DATABASE_URL=postgresql://...
-```
+#### **3. Secrets Management**
+Securely store environment variables:
+- Individual key-value pairs
+- Bulk paste from text file
+- Encrypted storage
 
-**📋 Planning Statement Tab**
+#### **4. Planning Statements**
+Configure AI agent behavior:
 ```
-You are working on a React/FastAPI project. Always follow these guidelines:
-- Use TypeScript for frontend components
-- Follow REST API conventions
-- Implement proper error handling
-- Add comprehensive logging
-- Ensure responsive design
-- Write clean, maintainable code
+You are a senior full-stack developer specializing in React and Python.
+Focus on clean, maintainable code with comprehensive error handling.
+Always include proper TypeScript types and documentation.
 ```
 
-### **2. AI Agent Workflow**
+### **Validation Pipeline**
 
-#### **Starting an Agent Run**
-1. Select project from dropdown header
-2. Click "Agent Run" button on project card
-3. Enter target/goal in natural language
-4. Planning statement automatically prepended
-5. Real-time progress tracking via WebSocket
+The 7-step validation process:
 
-#### **Response Types**
+1. **📸 Snapshot Creation** - Grainchain creates isolated environment
+2. **📥 PR Codebase Clone** - Downloads PR changes
+3. **🚀 Deployment Commands** - Runs setup commands
+4. **✅ Success Validation** - Gemini AI validates deployment
+5. **🧪 UI Testing** - Web-eval-agent tests all flows
+6. **🔄 Error Handling** - Automatic retry with context
+7. **🎯 Auto-merge** - Merge validated PRs (if enabled)
 
-**📝 Regular Response**
-- Shows agent output
-- "Continue" button for additional input
-- Resume endpoint integration
+## 🔧 **API Reference**
 
-**📋 Plan Response**
-- Displays proposed plan with steps
-- "Confirm" or "Modify" buttons
-- Auto-confirm option available
+### **Core Endpoints**
 
-**🔄 PR Response**
-- Shows created PR link with number
-- Triggers automatic validation pipeline
-- Real-time validation progress updates
-
-### **3. Complete 7-Step Validation Pipeline**
-
-When a PR is created, the system automatically runs:
-
-#### **Step 1: Snapshot Creation**
-- Creates grainchain sandbox environment
-- Deploys web-eval-agent + graph-sitter
-- Configures required environment variables
-
-#### **Step 2: Code Clone**
-- Clones PR branch to sandbox
-- Validates repository access
-- Prepares isolated workspace
-
-#### **Step 3: Code Analysis**
-- Runs graph-sitter analysis
-- Checks code quality metrics
-- Supports TypeScript, JavaScript, Python, Rust, Go
-
-#### **Step 4: Deployment**
-- Executes project setup commands
-- Applies environment variables
-- Real-time deployment logs
-
-#### **Step 5: Deployment Validation**
-- Uses Gemini API for intelligent validation
-- Analyzes deployment success/failure
-- Provides confidence scoring
-
-#### **Step 6: UI Testing**
-- Runs comprehensive web-eval-agent tests
-- Tests all flows and components
-- Generates detailed test reports
-
-#### **Step 7: Auto-merge**
-- Checks auto-merge settings and score thresholds
-- Merges PR if validation passes
-- Sends completion notifications
-
-### **4. Error Handling & Recovery**
-
-#### **Automatic Error Recovery**
-- Failed steps trigger intelligent retry mechanism
-- Error context automatically sent to Codegen API
-- Automatic PR updates with fixes
-- Maximum 3 retries per step with exponential backoff
-
-#### **Error Context Integration**
-- Deployment errors → Gemini analysis → Codegen fix
-- UI test failures → web-eval-agent logs → Codegen fix
-- Real-time error reporting via WebSocket
-- Comprehensive error logging and tracking
-
-## 🔧 **Configuration**
-
-### **Tiered Configuration System**
-
-The system supports three configuration tiers that automatically enable/disable features:
-
-#### **Basic Tier** (Default)
-```bash
-CONFIG_TIER=basic
-```
-**Features:**
-- ✅ Projects and agent runs
-- ✅ Basic validation pipeline
-- ✅ GitHub integration
-- ✅ Codegen API integration
-- ✅ Core dashboard functionality
-
-#### **Intermediate Tier**
-```bash
-CONFIG_TIER=intermediate
-```
-**Additional Features:**
-- ✅ Real-time WebSocket updates
-- ✅ Background task processing (Celery)
-- ✅ Rate limiting and security
-- ✅ Advanced validation pipeline
-- ✅ Comprehensive error handling
-
-#### **Advanced Tier** (Enterprise)
-```bash
-CONFIG_TIER=advanced
-```
-**Additional Features:**
-- ✅ Prometheus monitoring + Grafana dashboards
-- ✅ SSL/TLS support
-- ✅ Email notifications
-- ✅ Enterprise security features
-- ✅ Database backup and recovery
-- ✅ Advanced logging and analytics
-
-### **Environment Variables**
-
-**Core Configuration:**
-```bash
-# Application
-CONFIG_TIER=basic|intermediate|advanced
-ENVIRONMENT=development|staging|production
-DEBUG=true|false
-LOG_LEVEL=DEBUG|INFO|WARNING|ERROR
-
-# Database
-POSTGRES_PASSWORD=secure-password
-DATABASE_URL=postgresql+asyncpg://...
-REDIS_URL=redis://localhost:6379/0
-
-# Security
-SECRET_KEY=your-secret-key-min-32-chars
-ENCRYPTION_KEY=base64-encoded-32-bytes
-ENCRYPTION_SALT=unique-salt-value
+```http
+GET    /health                 # Health check
+GET    /api/projects          # List GitHub projects
+POST   /api/projects/{id}/run # Start AI agent run
+GET    /api/runs/{id}         # Get run status
+POST   /api/runs/{id}/continue # Continue conversation
 ```
 
-**API Integration:**
-```bash
-# Codegen API
-CODEGEN_ORG_ID=323
-CODEGEN_API_TOKEN=sk-your-token
+### **WebSocket Events**
 
-# GitHub
-GITHUB_TOKEN=github_pat_your-token
-GITHUB_WEBHOOK_SECRET=webhook-secret
-
-# AI Services
-GEMINI_API_KEY=your-gemini-key
-
-# Cloudflare
-CLOUDFLARE_API_KEY=your-api-key
-CLOUDFLARE_ACCOUNT_ID=your-account-id
-CLOUDFLARE_WORKER_URL=https://your-worker.workers.dev
-```
-
-**Validation Tools:**
-```bash
-# Grainchain (sandboxing)
-GRAINCHAIN_ENABLED=true
-GRAINCHAIN_DOCKER_SOCKET=/var/run/docker.sock
-GRAINCHAIN_WORKSPACE_DIR=/tmp/grainchain_workspaces
-
-# Web-eval-agent (UI testing)
-WEB_EVAL_ENABLED=true
-WEB_EVAL_BROWSER=chromium
-WEB_EVAL_HEADLESS=true
-WEB_EVAL_TIMEOUT=30000
-
-# Graph-sitter (code quality)
-GRAPH_SITTER_ENABLED=true
-GRAPH_SITTER_LANGUAGES=typescript,javascript,python,rust,go
-```
-
-## 🐳 **Deployment**
-
-### **Development Deployment**
-
-```bash
-# Start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f backend
-
-# Stop services
-docker-compose down
-```
-
-### **Staging Deployment**
-
-```bash
-# Intermediate tier with background workers
-docker-compose --profile intermediate up -d
-
-# Scale workers
-docker-compose up -d --scale celery_worker=4
-```
-
-### **Production Deployment**
-
-```bash
-# Advanced tier with monitoring and SSL
-docker-compose --profile production --profile advanced up -d
-
-# Health check
-curl https://your-domain.com/health
-```
-
-### **Scaling & Performance**
-
-```bash
-# Scale backend services
-docker-compose up -d --scale backend=3
-
-# Scale validation workers
-docker-compose up -d --scale celery_worker=8
-
-# Monitor performance
-docker-compose logs -f prometheus
-```
-
-## 📊 **Monitoring & Analytics**
-
-### **Health Checks**
-
-All services include comprehensive health checks:
-
-- **Backend**: `/health` endpoint with database connectivity
-- **Database**: PostgreSQL connection and query tests
-- **Redis**: Ping command and memory usage
-- **Frontend**: HTTP response and asset loading
-
-### **Metrics & Dashboards** (Advanced Tier)
-
-#### **Prometheus Metrics**
-- API request rates and latencies
-- Validation pipeline success rates
-- Database connection pool status
-- WebSocket connection counts
-- Agent run completion rates
-
-#### **Grafana Dashboards**
-- Real-time system metrics
-- Validation pipeline analytics
-- Error rate monitoring
-- Performance tracking
-- User activity analytics
-
-### **Logging**
-
-```bash
-# View all logs
-docker-compose logs -f
-
-# Service-specific logs
-docker-compose logs -f backend
-docker-compose logs -f celery_worker
-
-# Validation pipeline logs
-docker-compose logs -f backend | grep validation
-
-# Error logs only
-docker-compose logs -f backend | grep ERROR
-```
-
-## 🔒 **Security**
-
-### **Data Protection**
-
-#### **Encryption**
-- Secrets encrypted with Fernet (AES 128)
-- PBKDF2 key derivation with salt
-- Base64 encoding for secure storage
-
-#### **Authentication**
-- JWT-based API authentication
-- API key support for service integration
-- Environment-based configuration
-
-#### **Network Security**
-- Docker network isolation
-- CORS configuration with origin validation
-- Rate limiting on API endpoints
-- SSL/TLS support (advanced tier)
-
-### **Best Practices**
-
-#### **Environment Variables**
-- Never commit `.env` files to version control
-- Use strong, unique passwords (min 32 characters)
-- Rotate API keys regularly
-- Use different secrets for each environment
-
-#### **Database Security**
-- Encrypted connections with SSL
-- Regular automated backups
-- Access control with least privilege
-- Connection pooling with limits
-
-## 🧪 **Testing**
-
-### **Running Tests**
-
-```bash
-# Backend tests
-cd backend
-python -m pytest tests/ -v --cov=backend
-
-# Frontend tests
-cd frontend
-npm test -- --coverage
-
-# Integration tests
-docker-compose -f docker-compose.test.yml up --abort-on-container-exit
-
-# End-to-end tests
-python tests/test_complete_flow.py
-```
-
-### **Test Coverage**
-
-The system includes comprehensive testing:
-
-- **Unit Tests**: Individual component testing
-- **Integration Tests**: Service interaction testing
-- **API Tests**: Complete API endpoint testing
-- **E2E Tests**: Full workflow testing with web-eval-agent
-- **Performance Tests**: Load and stress testing
-
-## 📚 **API Documentation**
-
-### **REST API Endpoints**
-
-#### **Projects**
-- `GET /api/v1/projects` - List all projects
-- `POST /api/v1/projects` - Create new project
-- `GET /api/v1/projects/{id}` - Get project details
-- `PUT /api/v1/projects/{id}` - Update project
-- `DELETE /api/v1/projects/{id}` - Delete project
-
-#### **Agent Runs**
-- `POST /api/v1/agent-runs` - Start agent run
-- `GET /api/v1/agent-runs/{id}` - Get agent run status
-- `POST /api/v1/agent-runs/{id}/continue` - Continue agent run
-
-#### **Validation**
-- `POST /api/v1/validation/start` - Start validation pipeline
-- `GET /api/v1/validation/{id}` - Get validation status
-- `GET /api/v1/validation/{id}/logs` - Get validation logs
-
-#### **Configuration**
-- `GET /api/v1/configurations/{project_id}` - Get project configuration
-- `PUT /api/v1/configurations/{project_id}` - Update configuration
-- `POST /api/v1/configurations/{project_id}/secrets` - Create secret
-
-#### **Webhooks**
-- `POST /api/v1/webhooks/github` - GitHub webhook handler
-
-### **WebSocket Events** (Intermediate+ Tier)
-
-#### **Client → Server**
 ```javascript
-// Subscribe to project updates
-{
-  "type": "subscribe_project",
-  "project_id": "uuid"
-}
+// Connect to WebSocket
+const ws = new WebSocket('ws://localhost:8000/ws');
 
-// Heartbeat
-{
-  "type": "ping",
-  "timestamp": "2024-01-01T00:00:00Z"
-}
+// Listen for updates
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log('Update:', data);
+};
 ```
 
-#### **Server → Client**
-```javascript
-// Agent run update
-{
-  "type": "agent_run_update",
-  "project_id": "uuid",
-  "agent_run_id": "uuid",
-  "status": "running",
-  "data": {...}
-}
+## 🔐 **Security**
 
-// Validation update
-{
-  "type": "validation_update",
-  "project_id": "uuid",
-  "step_index": 2,
-  "step": {...},
-  "overall_status": "running"
-}
+- **Environment Variables** - Sensitive data stored in .env
+- **API Token Validation** - Format checking for all tokens
+- **CORS Configuration** - Configurable origins
+- **Secret Encryption** - Encrypted storage for project secrets
 
-// PR notification
-{
-  "type": "pr_notification",
-  "project_id": "uuid",
-  "pr_url": "https://github.com/user/repo/pull/123",
-  "action": "created"
-}
+## 📊 **Monitoring & Logging**
+
+### **Log Files**
+- `logs/backend.log` - Backend service logs
+- `logs/frontend.log` - Frontend service logs
+
+### **Monitoring Commands**
+```bash
+# View live logs
+tail -f logs/backend.log logs/frontend.log
+
+# Check service status
+ps aux | grep -E "(python|node)" | grep -v grep
+
+# Monitor ports
+lsof -i :8000,3001
 ```
 
 ## 🛠️ **Development**
 
-### **Local Development Setup**
-
+### **Backend Development**
 ```bash
-# Clone repository
-git clone https://github.com/Zeeeepa/CodegenCICD.git
-cd CodegenCICD
-
-# Backend setup
 cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-
-# Frontend setup
-cd ../frontend
-npm install
-npm start
-
-# Database setup
-docker-compose up -d postgres redis
-python backend/database.py  # Create tables
+source venv/bin/activate
+python main.py
 ```
 
-### **Code Style**
+### **Frontend Development**
+```bash
+cd frontend
+npm start
+```
 
-#### **Backend (Python)**
-- Black code formatting
-- isort import sorting
-- flake8 linting
-- Type hints required
-- Structured logging with structlog
+### **Adding New Features**
+1. Update backend API endpoints
+2. Add frontend components
+3. Update WebSocket handlers
+4. Test validation pipeline
+5. Update documentation
 
-#### **Frontend (TypeScript)**
-- Prettier code formatting
-- ESLint linting
-- Strict TypeScript configuration
-- Material-UI design system
+## 🔄 **Deployment**
 
-### **Contributing**
+### **Development**
+```bash
+./start.sh
+```
 
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Make changes with tests
-4. Run linting and tests
-5. Submit pull request
-6. Code review process
-7. Merge after approval
+### **Production**
+1. Set environment variables for production
+2. Configure SSL certificates
+3. Set up reverse proxy (nginx)
+4. Configure monitoring (Prometheus/Grafana)
+5. Set up log rotation
 
-## 🔧 **Troubleshooting**
+## 🐛 **Troubleshooting**
 
 ### **Common Issues**
 
-#### **Database Connection Errors**
+**Port Already in Use**
 ```bash
-# Check PostgreSQL status
-docker-compose ps postgres
-
-# View database logs
-docker-compose logs postgres
-
-# Reset database
-docker-compose down -v
-docker-compose up -d postgres
+# Kill processes on ports
+lsof -ti:8000,3001 | xargs kill -9
 ```
 
-#### **WebSocket Connection Issues**
+**Python Virtual Environment Issues**
 ```bash
-# Check backend logs
-docker-compose logs backend | grep websocket
-
-# Test WebSocket endpoint
-wscat -c ws://localhost:8000/ws/test-client
+# Recreate virtual environment
+rm -rf backend/venv
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-#### **Validation Pipeline Failures**
+**Node.js Dependencies Issues**
 ```bash
-# Check validation logs
-docker-compose logs backend | grep validation
-
-# Check grainchain integration
-docker ps | grep grainchain
-
-# Check web-eval-agent status
-docker-compose logs celery_worker | grep web-eval
+# Clear cache and reinstall
+cd frontend
+rm -rf node_modules package-lock.json
+npm cache clean --force
+npm install
 ```
 
-### **Performance Optimization**
+**API Connection Issues**
+- Verify API tokens are correct
+- Check network connectivity
+- Validate environment variables
+- Review backend logs
 
-#### **Database Optimization**
-- Add indexes for frequently queried fields
-- Use connection pooling
-- Regular VACUUM and ANALYZE
-- Monitor slow queries
+## 📚 **External Services Setup**
 
-#### **Redis Optimization**
-- Configure memory limits
-- Use appropriate data structures
-- Monitor memory usage
-- Set up Redis clustering for scale
+### **Codegen API**
+1. Sign up at [codegen.com](https://codegen.com)
+2. Get your organization ID and API token
+3. Add to environment variables
 
-#### **Frontend Optimization**
-- Enable code splitting
-- Optimize bundle size
-- Use service workers for caching
-- Implement lazy loading
+### **GitHub Integration**
+1. Create Personal Access Token
+2. Grant repository permissions
+3. Add token to environment
+
+### **Gemini AI**
+1. Get API key from Google AI Studio
+2. Enable Gemini API
+3. Add key to environment
+
+### **Cloudflare Workers**
+1. Set up Cloudflare account
+2. Deploy webhook worker
+3. Configure worker URL
 
 ## 🤝 **Contributing**
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-### **Development Process**
-
-1. **Fork & Clone**: Fork the repo and clone locally
-2. **Branch**: Create a feature branch
-3. **Develop**: Make changes with tests
-4. **Test**: Run full test suite
-5. **Document**: Update documentation
-6. **Submit**: Create pull request
-7. **Review**: Address feedback
-8. **Merge**: Celebrate! 🎉
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open Pull Request
 
 ## 📄 **License**
 
@@ -720,24 +350,24 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 **Acknowledgments**
 
-- **[Codegen](https://codegen.com)** - AI-powered development platform
-- **[grainchain](https://github.com/Zeeeepa/grainchain)** - Sandboxing and snapshotting
-- **[web-eval-agent](https://github.com/Zeeeepa/web-eval-agent)** - UI testing and interaction
-- **[graph-sitter](https://github.com/Zeeeepa/graph-sitter)** - Code quality analysis
-- **[FastAPI](https://fastapi.tiangolo.com/)** - Modern Python web framework
-- **[React](https://reactjs.org/)** - Frontend library
-- **[Material-UI](https://mui.com/)** - React component library
-
-## 📞 **Support**
-
-- **Documentation**: [GitHub Wiki](https://github.com/Zeeeepa/CodegenCICD/wiki)
-- **Issues**: [GitHub Issues](https://github.com/Zeeeepa/CodegenCICD/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/Zeeeepa/CodegenCICD/discussions)
-- **API Docs**: http://localhost:8000/docs (when running)
+- **[Codegen](https://codegen.com)** - AI agent platform
+- **[Grainchain](https://github.com/Zeeeepa/grainchain)** - Sandboxing technology
+- **[Graph-sitter](https://github.com/Zeeeepa/graph-sitter)** - Code analysis
+- **[Web-eval-agent](https://github.com/Zeeeepa/web-eval-agent)** - UI testing
+- **FastAPI** - Modern Python web framework
+- **React** - Frontend library
+- **Material-UI** - Component library
 
 ---
 
-**🚀 Built with ❤️ by the CodegenCICD Team - Empowering developers with AI-driven CI/CD automation**
+**🚀 Ready to transform your development workflow with AI-powered CI/CD? Get started now!**
 
-*Ready to revolutionize your development workflow? Get started in 5 minutes!* 🎯
+```bash
+git clone https://github.com/Zeeeepa/CodegenCICD.git
+cd CodegenCICD
+./deploy.sh
+./start.sh
+```
+
+**Dashboard will be available at: http://localhost:3001** 🎯
 
