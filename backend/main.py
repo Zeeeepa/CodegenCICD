@@ -1,419 +1,239 @@
 """
-CodegenCICD Dashboard - Unified Main Application
-Complete FastAPI application with all features from all PRs
+Main FastAPI application entry point
 """
-from fastapi import FastAPI, HTTPException, Depends, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
-import uvicorn
 import os
-import asyncio
-from contextlib import asynccontextmanager
-from typing import Dict, Any
-import structlog
+import sys
+from pathlib import Path
 
-# Import configuration and database
-from backend.config import get_settings, is_development, is_production, get_cors_origins
-from backend.database import init_db, close_db, check_db_health
+# Add the backend directory to Python path
+backend_dir = Path(__file__).parent
+sys.path.insert(0, str(backend_dir))
 
-# Import routers
-from backend.routers import (
-    projects, agent_runs, configurations, webhooks, 
-    websocket, validation, health, monitoring
-)
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
+import uvicorn
 
-# Import services
-from backend.services.websocket_service import WebSocketService
-from backend.services.notification_service import NotificationService
-
-# Import middleware
-from backend.middleware.rate_limiting import RateLimitMiddleware
-from backend.middleware.security import SecurityMiddleware
-from backend.middleware.logging import LoggingMiddleware
-
-# Configure structured logging
-structlog.configure(
-    processors=[
-        structlog.stdlib.filter_by_level,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.PositionalArgumentsFormatter(),
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
-        structlog.processors.UnicodeDecoder(),
-        structlog.processors.JSONRenderer()
-    ],
-    context_class=dict,
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    wrapper_class=structlog.stdlib.BoundLogger,
-    cache_logger_on_first_use=True,
-)
-
-logger = structlog.get_logger(__name__)
-settings = get_settings()
-
-# Global service instances
-websocket_service = WebSocketService()
-notification_service = NotificationService()
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan events with comprehensive startup and shutdown"""
-    # Startup
-    logger.info("🚀 Starting CodegenCICD Dashboard", 
-               version=settings.version,
-               environment=settings.environment,
-               config_tier=settings.config_tier.value)
-    
-    try:
-        # Initialize database
-        await init_db()
-        
-        # Initialize services based on configuration tier
-        if settings.is_feature_enabled("websocket_updates"):
-            logger.info("✅ WebSocket service initialized")
-        
-        if settings.is_feature_enabled("email_notifications"):
-            await notification_service.initialize()
-            logger.info("✅ Notification service initialized")
-        
-        if settings.is_feature_enabled("background_tasks"):
-            # Initialize Celery workers
-            logger.info("✅ Background task workers initialized")
-        
-        if settings.is_feature_enabled("monitoring"):
-            # Initialize monitoring
-            logger.info("✅ Monitoring services initialized")
-        
-        # Health check
-        db_health = await check_db_health()
-        if db_health["status"] == "healthy":
-            logger.info("✅ Database connection verified")
-        else:
-            logger.error("❌ Database connection failed", health=db_health)
-        
-        logger.info("🎉 CodegenCICD Dashboard started successfully!")
-        
-    except Exception as e:
-        logger.error("❌ Failed to start application", error=str(e))
-        raise
-    
-    yield
-    
-    # Shutdown
-    logger.info("🛑 Shutting down CodegenCICD Dashboard...")
-    
-    try:
-        # Close database connections
-        await close_db()
-        
-        # Close WebSocket connections
-        if settings.is_feature_enabled("websocket_updates"):
-            await websocket_service.close_all_connections()
-        
-        # Close notification service
-        if settings.is_feature_enabled("email_notifications"):
-            await notification_service.close()
-        
-        logger.info("👋 CodegenCICD Dashboard shut down gracefully")
-        
-    except Exception as e:
-        logger.error("❌ Error during shutdown", error=str(e))
-
-
-# Create FastAPI application with comprehensive configuration
+# Create FastAPI app
 app = FastAPI(
     title="CodegenCICD Dashboard",
-    description="AI-powered CI/CD dashboard with Codegen integration - Complete unified system",
-    version=settings.version,
-    lifespan=lifespan,
-    docs_url="/docs" if is_development() else None,
-    redoc_url="/redoc" if is_development() else None,
-    openapi_url="/openapi.json" if is_development() else None,
+    description="AI-powered CI/CD dashboard with validation pipeline",
+    version="1.0.0"
 )
 
-# =============================================================================
-# MIDDLEWARE CONFIGURATION
-# =============================================================================
-
-# Security middleware (always enabled)
-app.add_middleware(SecurityMiddleware)
-
-# Logging middleware (always enabled)
-app.add_middleware(LoggingMiddleware)
-
-# Rate limiting middleware (intermediate+ tier)
-if settings.is_feature_enabled("rate_limiting"):
-    app.add_middleware(
-        RateLimitMiddleware,
-        requests_per_minute=settings.rate_limit_requests_per_minute,
-        burst_size=settings.rate_limit_burst
-    )
-
-# CORS middleware
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_cors_origins(),
+    allow_origins=["*"],  # In production, specify exact origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Trusted host middleware (production)
-if is_production():
-    app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=["*"]  # Configure with actual domains in production
-    )
-
-# =============================================================================
-# ROUTER CONFIGURATION
-# =============================================================================
-
-# Core API routes (always enabled)
-app.include_router(
-    projects.router,
-    prefix="/api/v1/projects",
-    tags=["projects"]
-)
-
-app.include_router(
-    agent_runs.router,
-    prefix="/api/v1/agent-runs",
-    tags=["agent-runs"]
-)
-
-app.include_router(
-    configurations.router,
-    prefix="/api/v1/configurations",
-    tags=["configurations"]
-)
-
-app.include_router(
-    webhooks.router,
-    prefix="/api/v1/webhooks",
-    tags=["webhooks"]
-)
-
-app.include_router(
-    validation.router,
-    prefix="/api/v1/validation",
-    tags=["validation"]
-)
-
-app.include_router(
-    health.router,
-    prefix="/api/v1/health",
-    tags=["health"]
-)
-
-# WebSocket routes (intermediate+ tier)
-if settings.is_feature_enabled("websocket_updates"):
-    app.include_router(
-        websocket.router,
-        prefix="/ws",
-        tags=["websocket"]
-    )
-
-# Monitoring routes (advanced tier)
-if settings.is_feature_enabled("monitoring"):
-    app.include_router(
-        monitoring.router,
-        prefix="/api/v1/monitoring",
-        tags=["monitoring"]
-    )
-
-# =============================================================================
-# STATIC FILES (Development)
-# =============================================================================
-
-if is_development() and os.path.exists("frontend/build"):
-    app.mount("/static", StaticFiles(directory="frontend/build/static"), name="static")
-
-# =============================================================================
-# GLOBAL EXCEPTION HANDLERS
-# =============================================================================
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    """Handle HTTP exceptions with structured logging"""
-    logger.warning("HTTP exception occurred",
-                  status_code=exc.status_code,
-                  detail=exc.detail,
-                  path=request.url.path,
-                  method=request.method)
-    
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "error": {
-                "type": "http_exception",
-                "status_code": exc.status_code,
-                "detail": exc.detail,
-                "path": request.url.path
-            }
-        }
-    )
-
-
-@app.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception):
-    """Handle general exceptions with structured logging"""
-    logger.error("Unhandled exception occurred",
-                error=str(exc),
-                error_type=type(exc).__name__,
-                path=request.url.path,
-                method=request.method,
-                exc_info=True)
-    
-    return JSONResponse(
-        status_code=500,
-        content={
-            "error": {
-                "type": "internal_server_error",
-                "message": "An internal server error occurred",
-                "path": request.url.path
-            }
-        }
-    )
-
-# =============================================================================
-# CORE ENDPOINTS
-# =============================================================================
-
+# Basic health check endpoint
 @app.get("/")
 async def root():
-    """Root endpoint with application information"""
-    return {
-        "message": "CodegenCICD Dashboard API",
-        "version": settings.version,
-        "environment": settings.environment,
-        "config_tier": settings.config_tier.value,
-        "features": settings.get_active_features(),
-        "docs": "/docs" if is_development() else None,
-        "health": "/api/v1/health",
-        "websocket": "/ws/{client_id}" if settings.is_feature_enabled("websocket_updates") else None
-    }
-
+    return {"message": "CodegenCICD Dashboard API", "status": "running"}
 
 @app.get("/health")
 async def health_check():
-    """Basic health check endpoint"""
-    try:
-        db_health = await check_db_health()
-        
-        health_status = {
-            "status": "healthy" if db_health["status"] == "healthy" else "unhealthy",
-            "service": "CodegenCICD Dashboard",
-            "version": settings.version,
-            "environment": settings.environment,
-            "config_tier": settings.config_tier.value,
-            "timestamp": structlog.processors.TimeStamper(fmt="iso")(None, None, None)["timestamp"],
-            "database": db_health,
-            "features": settings.get_active_features()
-        }
-        
-        # Add service-specific health checks
-        if settings.is_feature_enabled("websocket_updates"):
-            health_status["websocket"] = {
-                "active_connections": len(websocket_service.active_connections)
-            }
-        
-        return health_status
-        
-    except Exception as e:
-        logger.error("Health check failed", error=str(e))
-        return JSONResponse(
-            status_code=503,
-            content={
-                "status": "unhealthy",
-                "service": "CodegenCICD Dashboard",
-                "error": str(e)
-            }
-        )
+    return {"status": "healthy", "service": "codegencd-api"}
 
-
-@app.get("/api/v1/info")
-async def application_info():
-    """Detailed application information"""
+# Mock endpoints for the UI
+@app.get("/api/projects")
+async def get_projects():
+    """Get all projects"""
     return {
-        "application": {
-            "name": settings.app_name,
-            "version": settings.version,
-            "environment": settings.environment,
-            "config_tier": settings.config_tier.value,
-            "debug": settings.debug
-        },
-        "features": settings.get_active_features(),
-        "configuration": {
-            "database_url": "***" if settings.database_url else None,
-            "redis_url": "***" if settings.redis_url else None,
-            "grainchain_enabled": settings.grainchain_enabled,
-            "web_eval_enabled": settings.web_eval_enabled,
-            "graph_sitter_enabled": settings.graph_sitter_enabled,
-        },
-        "api": {
-            "docs": "/docs" if is_development() else None,
-            "redoc": "/redoc" if is_development() else None,
-            "openapi": "/openapi.json" if is_development() else None
-        }
+        "projects": [
+            {
+                "id": 1,
+                "name": "Sample Project",
+                "github_owner": "Zeeeepa",
+                "github_repo": "CodegenCICD",
+                "status": "active",
+                "webhook_url": "https://webhook-gateway.pixeliumperfecto.workers.dev/webhook/Zeeeepa/CodegenCICD",
+                "auto_merge_enabled": False,
+                "auto_confirm_plans": True,
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z"
+            }
+        ]
     }
 
-# =============================================================================
-# DEVELOPMENT UTILITIES
-# =============================================================================
+@app.post("/api/projects")
+async def create_project(project_data: dict):
+    """Create a new project"""
+    return {
+        "id": 2,
+        "name": project_data.get("name", "New Project"),
+        "github_owner": project_data.get("github_owner", ""),
+        "github_repo": project_data.get("github_repo", ""),
+        "status": "active",
+        "webhook_url": f"https://webhook-gateway.pixeliumperfecto.workers.dev/webhook/{project_data.get('github_owner', '')}/{project_data.get('github_repo', '')}",
+        "auto_merge_enabled": project_data.get("auto_merge_enabled", False),
+        "auto_confirm_plans": project_data.get("auto_confirm_plans", False),
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z"
+    }
 
-if is_development():
-    @app.get("/api/v1/dev/reset-database")
-    async def reset_database():
-        """Reset database (development only)"""
-        try:
-            from backend.database import DatabaseManager
-            await DatabaseManager.reset_database()
-            return {"message": "Database reset successfully"}
-        except Exception as e:
-            logger.error("Database reset failed", error=str(e))
-            raise HTTPException(status_code=500, detail=str(e))
+@app.get("/api/projects/{project_id}/configuration")
+async def get_project_configuration(project_id: int):
+    """Get project configuration"""
+    return {
+        "id": 1,
+        "project_id": project_id,
+        "repository_rules": "Follow TypeScript best practices and use Material-UI components.",
+        "setup_commands": "cd frontend\nnpm install\nnpm run build\nnpm start",
+        "planning_statement": "You are working on a React TypeScript project with Material-UI. Focus on clean, maintainable code.",
+        "branch_name": "main",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z"
+    }
+
+@app.put("/api/projects/{project_id}/configuration")
+async def update_project_configuration(project_id: int, config_data: dict):
+    """Update project configuration"""
+    return {
+        "id": 1,
+        "project_id": project_id,
+        "repository_rules": config_data.get("repository_rules", ""),
+        "setup_commands": config_data.get("setup_commands", ""),
+        "planning_statement": config_data.get("planning_statement", ""),
+        "branch_name": config_data.get("branch_name", "main"),
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z"
+    }
+
+@app.get("/api/projects/{project_id}/secrets")
+async def get_project_secrets(project_id: int):
+    """Get project secrets"""
+    return {
+        "secrets": [
+            {
+                "id": 1,
+                "project_id": project_id,
+                "key": "CODEGEN_API_TOKEN",
+                "value": "sk-ce027fa7-3c8d-4beb-8c86-ed8ae982ac99",
+                "created_at": "2024-01-01T00:00:00Z"
+            },
+            {
+                "id": 2,
+                "project_id": project_id,
+                "key": "GITHUB_TOKEN",
+                "value": "your_github_token_here",
+                "created_at": "2024-01-01T00:00:00Z"
+            }
+        ]
+    }
+
+@app.post("/api/projects/{project_id}/secrets")
+async def create_project_secret(project_id: int, secret_data: dict):
+    """Create a new project secret"""
+    return {
+        "id": 3,
+        "project_id": project_id,
+        "key": secret_data.get("key", ""),
+        "value": secret_data.get("value", ""),
+        "created_at": "2024-01-01T00:00:00Z"
+    }
+
+@app.post("/api/agent-runs")
+async def create_agent_run(agent_run_data: dict):
+    """Create a new agent run"""
+    return {
+        "id": 1,
+        "project_id": agent_run_data.get("project_id", 1),
+        "target_text": agent_run_data.get("target_text", ""),
+        "planning_statement": agent_run_data.get("planning_statement", ""),
+        "status": "running",
+        "run_type": "regular",
+        "result": None,
+        "error_message": None,
+        "pr_number": None,
+        "pr_url": None,
+        "validation_status": "pending",
+        "auto_merge_enabled": False,
+        "merge_completed": False,
+        "started_at": "2024-01-01T00:00:00Z",
+        "completed_at": None
+    }
+
+@app.get("/api/agent-runs")
+async def get_agent_runs(project_id: int = None):
+    """Get agent runs"""
+    return {
+        "agent_runs": [
+            {
+                "id": 1,
+                "project_id": 1,
+                "target_text": "Create a new dashboard component",
+                "planning_statement": "Focus on React best practices",
+                "status": "completed",
+                "run_type": "pr",
+                "result": "Successfully created PR #15 with dashboard improvements",
+                "error_message": None,
+                "pr_number": 15,
+                "pr_url": "https://github.com/Zeeeepa/CodegenCICD/pull/15",
+                "validation_status": "completed",
+                "auto_merge_enabled": False,
+                "merge_completed": False,
+                "started_at": "2024-01-01T00:00:00Z",
+                "completed_at": "2024-01-01T00:05:00Z"
+            }
+        ]
+    }
+
+@app.get("/api/github-repos")
+async def get_github_repos():
+    """Get available GitHub repositories"""
+    return {
+        "repositories": [
+            {
+                "id": 1,
+                "name": "CodegenCICD",
+                "full_name": "Zeeeepa/CodegenCICD",
+                "owner": {"login": "Zeeeepa"},
+                "description": "AI-powered CI/CD dashboard",
+                "private": False,
+                "updated_at": "2024-01-01T00:00:00Z"
+            },
+            {
+                "id": 2,
+                "name": "grainchain",
+                "full_name": "Zeeeepa/grainchain",
+                "owner": {"login": "Zeeeepa"},
+                "description": "Langchain for sandboxes",
+                "private": False,
+                "updated_at": "2024-01-01T00:00:00Z"
+            }
+        ]
+    }
+
+# Serve static files (for the React frontend)
+frontend_dir = Path(__file__).parent.parent / "frontend" / "build"
+if frontend_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(frontend_dir / "static")), name="static")
     
-    @app.get("/api/v1/dev/database-stats")
-    async def database_stats():
-        """Get database statistics (development only)"""
-        try:
-            from backend.database import DatabaseManager
-            stats = await DatabaseManager.get_database_stats()
-            return stats
-        except Exception as e:
-            logger.error("Failed to get database stats", error=str(e))
-            raise HTTPException(status_code=500, detail=str(e))
-
-# =============================================================================
-# APPLICATION STARTUP
-# =============================================================================
+    @app.get("/{path:path}")
+    async def serve_frontend(path: str):
+        """Serve the React frontend"""
+        index_file = frontend_dir / "index.html"
+        if index_file.exists():
+            with open(index_file, "r") as f:
+                return HTMLResponse(content=f.read())
+        return {"message": "Frontend not built yet. Run 'npm run build' in the frontend directory."}
 
 if __name__ == "__main__":
-    # Configure uvicorn based on environment
-    uvicorn_config = {
-        "app": "backend.main:app",
-        "host": "0.0.0.0",
-        "port": 8000,
-        "log_level": settings.log_level.lower(),
-        "access_log": is_development(),
-        "reload": is_development() and settings.debug,
-        "workers": 1 if is_development() else 4,
-    }
+    # Load environment variables
+    from dotenv import load_dotenv
+    load_dotenv()
     
-    # SSL configuration for production
-    if is_production() and settings.is_feature_enabled("ssl_support"):
-        if settings.ssl_cert_path and settings.ssl_key_path:
-            uvicorn_config.update({
-                "ssl_certfile": settings.ssl_cert_path,
-                "ssl_keyfile": settings.ssl_key_path
-            })
-    
-    logger.info("Starting uvicorn server", config=uvicorn_config)
-    uvicorn.run(**uvicorn_config)
-
+    # Start the server
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info"
+    )
