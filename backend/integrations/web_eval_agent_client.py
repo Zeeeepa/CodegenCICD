@@ -1,418 +1,360 @@
-"""
-Web-eval-agent client for UI testing and browser automation
-"""
-import os
-import httpx
-import logging
+import aiohttp
+import asyncio
 from typing import Dict, Any, List, Optional
-
-logger = logging.getLogger(__name__)
+import json
+import subprocess
+import os
+import tempfile
+import shutil
 
 class WebEvalAgentClient:
-    def __init__(self):
-        self.base_url = os.getenv("WEB_EVAL_AGENT_API_URL", "http://localhost:8082")
-        self.api_key = os.getenv("WEB_EVAL_AGENT_API_KEY")
-        self.enabled = os.getenv("WEB_EVAL_AGENT_ENABLED", "true").lower() == "true"
+    """Client for Web-Eval-Agent service for comprehensive UI testing."""
     
-    async def run_tests(self, snapshot_id: str, test_config: Dict[str, Any]) -> Dict[str, Any]:
-        """Run comprehensive UI tests on the deployed application"""
+    def __init__(self, base_url: str = None, gemini_api_key: str = None):
+        self.base_url = base_url or "http://localhost:8003"
+        self.gemini_api_key = gemini_api_key
+        self.headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "CodegenCICD-Dashboard/1.0"
+        }
+        if gemini_api_key:
+            self.headers["Authorization"] = f"Bearer {gemini_api_key}"
+    
+    async def test_connection(self) -> Dict[str, Any]:
+        """Test connection to Web-Eval-Agent service."""
         try:
-            if not self.enabled:
-                # Return mock test results for development
-                return {
-                    "status": "completed",
-                    "url": test_config.get("url", "http://localhost:3000"),
-                    "total_tests": 15,
-                    "passed_tests": 14,
-                    "failed_tests": 1,
-                    "duration": 45.2,
-                    "results": [
-                        {
-                            "test_name": "component_rendering",
-                            "passed": True,
-                            "duration": 2.1,
-                            "details": "All components rendered successfully"
-                        },
-                        {
-                            "test_name": "user_flows",
-                            "passed": True,
-                            "duration": 15.3,
-                            "details": "User authentication and navigation flows work correctly"
-                        },
-                        {
-                            "test_name": "accessibility",
-                            "passed": True,
-                            "duration": 8.7,
-                            "details": "WCAG 2.1 AA compliance verified"
-                        },
-                        {
-                            "test_name": "performance",
-                            "passed": False,
-                            "duration": 12.4,
-                            "details": "Page load time exceeds 3 seconds",
-                            "error": "Performance threshold not met"
-                        },
-                        {
-                            "test_name": "responsive_design",
-                            "passed": True,
-                            "duration": 6.7,
-                            "details": "Responsive design works on all tested screen sizes"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{self.base_url}/health",
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as response:
+                    if response.status == 200:
+                        health_data = await response.json()
+                        return {
+                            "success": True,
+                            "status": health_data.get("status", "healthy"),
+                            "version": health_data.get("version", "unknown")
                         }
-                    ],
-                    "screenshots": [
-                        {"name": "homepage", "url": "/screenshots/homepage.png"},
-                        {"name": "dashboard", "url": "/screenshots/dashboard.png"}
-                    ],
-                    "performance_metrics": {
-                        "first_contentful_paint": 1.2,
-                        "largest_contentful_paint": 2.8,
-                        "cumulative_layout_shift": 0.05,
-                        "time_to_interactive": 3.4
-                    }
-                }
-            
-            async with httpx.AsyncClient() as client:
-                headers = {"Content-Type": "application/json"}
-                if self.api_key:
-                    headers["Authorization"] = f"Bearer {self.api_key}"
-                
-                payload = {
-                    "snapshot_id": snapshot_id,
-                    "url": test_config.get("url"),
-                    "tests": test_config.get("tests", []),
-                    "browser_config": {
-                        "headless": True,
-                        "viewport": {"width": 1920, "height": 1080},
-                        "user_agent": "WebEvalAgent/1.0"
-                    },
-                    "test_config": {
-                        "timeout": 30,
-                        "retry_count": 2,
-                        "screenshot_on_failure": True,
-                        "performance_budget": {
-                            "first_contentful_paint": 2.0,
-                            "largest_contentful_paint": 4.0,
-                            "time_to_interactive": 5.0
-                        }
-                    }
-                }
-                
-                response = await client.post(
-                    f"{self.base_url}/test",
-                    headers=headers,
-                    json=payload,
-                    timeout=300.0  # 5 minutes for comprehensive testing
-                )
-                
-                response.raise_for_status()
-                result = response.json()
-                
-                logger.info(f"Completed UI tests for snapshot {snapshot_id}")
-                return result
-                
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error running UI tests: {e}")
-            raise Exception(f"Failed to run UI tests: {e}")
+                    else:
+                        raise Exception(f"Health check failed: {response.status}")
         except Exception as e:
-            logger.error(f"Error running UI tests: {e}")
-            # Return mock results for development
+            raise Exception(f"Web-Eval-Agent connection failed: {str(e)}")
+    
+    async def run_comprehensive_test(
+        self, 
+        base_url: str, 
+        test_scenarios: List[str] = None
+    ) -> Dict[str, Any]:
+        """Run comprehensive UI testing on the application."""
+        
+        if test_scenarios is None:
+            test_scenarios = [
+                "homepage_functionality",
+                "navigation_testing", 
+                "form_validation",
+                "responsive_design",
+                "accessibility_check",
+                "performance_test",
+                "component_interaction",
+                "error_handling",
+                "data_persistence",
+                "user_workflow"
+            ]
+        
+        test_config = {
+            "base_url": base_url,
+            "scenarios": test_scenarios,
+            "browser": "chromium",
+            "headless": True,
+            "timeout": 30000,
+            "viewport": {"width": 1920, "height": 1080},
+            "gemini_api_key": self.gemini_api_key
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.base_url}/test/comprehensive",
+                    headers=self.headers,
+                    json=test_config,
+                    timeout=aiohttp.ClientTimeout(total=300)  # 5 minutes timeout
+                ) as response:
+                    if response.status == 200:
+                        test_results = await response.json()
+                        return self._process_test_results(test_results)
+                    else:
+                        error_text = await response.text()
+                        raise Exception(f"Comprehensive test failed: {response.status} - {error_text}")
+        except Exception as e:
             return {
-                "status": "error",
+                "success": False,
                 "error": str(e),
-                "total_tests": 0,
-                "passed_tests": 0,
-                "failed_tests": 0
+                "test_results": [],
+                "overall_score": 0
             }
     
-    async def test_component_rendering(self, snapshot_id: str, url: str, components: List[str] = None) -> Dict[str, Any]:
-        """Test that all components render correctly"""
+    async def test_specific_component(
+        self, 
+        base_url: str, 
+        component_selector: str,
+        test_actions: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Test a specific UI component."""
+        
+        test_config = {
+            "base_url": base_url,
+            "component_selector": component_selector,
+            "actions": test_actions,
+            "gemini_api_key": self.gemini_api_key
+        }
+        
         try:
-            if not self.enabled:
-                return {
-                    "status": "passed",
-                    "components_tested": components or ["Dashboard", "ProjectCard", "AgentRunDialog"],
-                    "all_rendered": True,
-                    "details": "All components rendered without errors"
-                }
-            
-            async with httpx.AsyncClient() as client:
-                headers = {"Content-Type": "application/json"}
-                if self.api_key:
-                    headers["Authorization"] = f"Bearer {self.api_key}"
-                
-                payload = {
-                    "snapshot_id": snapshot_id,
-                    "url": url,
-                    "components": components or [],
-                    "check_console_errors": True,
-                    "check_network_errors": True
-                }
-                
-                response = await client.post(
-                    f"{self.base_url}/test/components",
-                    headers=headers,
-                    json=payload,
-                    timeout=60.0
-                )
-                
-                response.raise_for_status()
-                return response.json()
-                
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.base_url}/test/component",
+                    headers=self.headers,
+                    json=test_config,
+                    timeout=aiohttp.ClientTimeout(total=60)
+                ) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    else:
+                        error_text = await response.text()
+                        raise Exception(f"Component test failed: {response.status} - {error_text}")
         except Exception as e:
-            logger.error(f"Error testing component rendering: {e}")
-            return {"status": "error", "error": str(e)}
+            return {
+                "success": False,
+                "error": str(e),
+                "component_working": False
+            }
     
-    async def test_user_flows(self, snapshot_id: str, url: str, flows: List[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Test user interaction flows"""
+    async def analyze_deployment(self, logs: List[str], context: str) -> Dict[str, Any]:
+        """Analyze deployment logs using Gemini API."""
+        
+        analysis_config = {
+            "logs": logs,
+            "context": context,
+            "analysis_type": "deployment_validation",
+            "gemini_api_key": self.gemini_api_key
+        }
+        
         try:
-            if not self.enabled:
-                return {
-                    "status": "passed",
-                    "flows_tested": len(flows) if flows else 3,
-                    "all_passed": True,
-                    "details": "All user flows completed successfully",
-                    "flows": [
-                        {"name": "project_creation", "status": "passed", "duration": 5.2},
-                        {"name": "agent_run", "status": "passed", "duration": 8.7},
-                        {"name": "configuration", "status": "passed", "duration": 3.1}
-                    ]
-                }
-            
-            async with httpx.AsyncClient() as client:
-                headers = {"Content-Type": "application/json"}
-                if self.api_key:
-                    headers["Authorization"] = f"Bearer {self.api_key}"
-                
-                default_flows = [
-                    {
-                        "name": "project_creation",
-                        "steps": [
-                            {"action": "click", "selector": "[data-testid='add-project-button']"},
-                            {"action": "type", "selector": "input[name='name']", "text": "Test Project"},
-                            {"action": "click", "selector": "button[type='submit']"}
-                        ]
-                    },
-                    {
-                        "name": "agent_run",
-                        "steps": [
-                            {"action": "click", "selector": "[data-testid='agent-run-button']"},
-                            {"action": "type", "selector": "textarea[name='target']", "text": "Create a test component"},
-                            {"action": "click", "selector": "button[data-testid='start-run']"}
-                        ]
-                    }
-                ]
-                
-                payload = {
-                    "snapshot_id": snapshot_id,
-                    "url": url,
-                    "flows": flows or default_flows,
-                    "wait_for_navigation": True,
-                    "capture_screenshots": True
-                }
-                
-                response = await client.post(
-                    f"{self.base_url}/test/flows",
-                    headers=headers,
-                    json=payload,
-                    timeout=180.0
-                )
-                
-                response.raise_for_status()
-                return response.json()
-                
-        except Exception as e:
-            logger.error(f"Error testing user flows: {e}")
-            return {"status": "error", "error": str(e)}
-    
-    async def test_accessibility(self, snapshot_id: str, url: str) -> Dict[str, Any]:
-        """Test accessibility compliance"""
-        try:
-            if not self.enabled:
-                return {
-                    "status": "passed",
-                    "wcag_level": "AA",
-                    "compliance_score": 95,
-                    "issues": [
-                        {
-                            "type": "warning",
-                            "rule": "color-contrast",
-                            "element": "button.secondary",
-                            "message": "Color contrast ratio could be improved"
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.base_url}/analyze/deployment",
+                    headers=self.headers,
+                    json=analysis_config,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    if response.status == 200:
+                        analysis_result = await response.json()
+                        return {
+                            "deployment_successful": analysis_result.get("deployment_successful", False),
+                            "confidence": analysis_result.get("confidence", 0),
+                            "reason": analysis_result.get("reason", "Unknown"),
+                            "recommendations": analysis_result.get("recommendations", [])
                         }
-                    ],
-                    "recommendations": [
-                        "Increase color contrast for secondary buttons",
-                        "Add aria-labels to icon buttons"
-                    ]
-                }
-            
-            async with httpx.AsyncClient() as client:
-                headers = {"Content-Type": "application/json"}
-                if self.api_key:
-                    headers["Authorization"] = f"Bearer {self.api_key}"
-                
-                payload = {
-                    "snapshot_id": snapshot_id,
-                    "url": url,
-                    "wcag_level": "AA",
-                    "include_best_practices": True,
-                    "check_keyboard_navigation": True
-                }
-                
-                response = await client.post(
-                    f"{self.base_url}/test/accessibility",
-                    headers=headers,
-                    json=payload,
-                    timeout=120.0
-                )
-                
-                response.raise_for_status()
-                return response.json()
-                
+                    else:
+                        error_text = await response.text()
+                        raise Exception(f"Deployment analysis failed: {response.status} - {error_text}")
         except Exception as e:
-            logger.error(f"Error testing accessibility: {e}")
-            return {"status": "error", "error": str(e)}
+            return {
+                "deployment_successful": False,
+                "confidence": 0,
+                "reason": f"Analysis failed: {str(e)}",
+                "recommendations": ["Check deployment logs manually"]
+            }
     
-    async def test_performance(self, snapshot_id: str, url: str, budget: Dict[str, float] = None) -> Dict[str, Any]:
-        """Test performance metrics"""
+    async def test_user_workflow(
+        self, 
+        base_url: str, 
+        workflow_steps: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Test a complete user workflow."""
+        
+        workflow_config = {
+            "base_url": base_url,
+            "workflow_steps": workflow_steps,
+            "gemini_api_key": self.gemini_api_key
+        }
+        
         try:
-            if not self.enabled:
-                return {
-                    "status": "passed",
-                    "metrics": {
-                        "first_contentful_paint": 1.2,
-                        "largest_contentful_paint": 2.8,
-                        "cumulative_layout_shift": 0.05,
-                        "time_to_interactive": 3.4,
-                        "total_blocking_time": 150
-                    },
-                    "budget_met": True,
-                    "lighthouse_score": 92,
-                    "recommendations": [
-                        "Optimize images for better loading performance",
-                        "Consider code splitting for JavaScript bundles"
-                    ]
-                }
-            
-            async with httpx.AsyncClient() as client:
-                headers = {"Content-Type": "application/json"}
-                if self.api_key:
-                    headers["Authorization"] = f"Bearer {self.api_key}"
-                
-                default_budget = {
-                    "first_contentful_paint": 2.0,
-                    "largest_contentful_paint": 4.0,
-                    "time_to_interactive": 5.0,
-                    "cumulative_layout_shift": 0.1
-                }
-                
-                payload = {
-                    "snapshot_id": snapshot_id,
-                    "url": url,
-                    "performance_budget": budget or default_budget,
-                    "run_lighthouse": True,
-                    "network_throttling": "3G",
-                    "cpu_throttling": 4
-                }
-                
-                response = await client.post(
-                    f"{self.base_url}/test/performance",
-                    headers=headers,
-                    json=payload,
-                    timeout=180.0
-                )
-                
-                response.raise_for_status()
-                return response.json()
-                
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.base_url}/test/workflow",
+                    headers=self.headers,
+                    json=workflow_config,
+                    timeout=aiohttp.ClientTimeout(total=180)  # 3 minutes
+                ) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    else:
+                        error_text = await response.text()
+                        raise Exception(f"Workflow test failed: {response.status} - {error_text}")
         except Exception as e:
-            logger.error(f"Error testing performance: {e}")
-            return {"status": "error", "error": str(e)}
+            return {
+                "success": False,
+                "error": str(e),
+                "workflow_completed": False,
+                "failed_step": "unknown"
+            }
     
-    async def test_responsive_design(self, snapshot_id: str, url: str, viewports: List[Dict[str, int]] = None) -> Dict[str, Any]:
-        """Test responsive design across different screen sizes"""
+    async def capture_screenshot(self, base_url: str, selector: str = None) -> Dict[str, Any]:
+        """Capture screenshot of the application."""
+        
+        screenshot_config = {
+            "base_url": base_url,
+            "selector": selector,
+            "full_page": selector is None
+        }
+        
         try:
-            if not self.enabled:
-                return {
-                    "status": "passed",
-                    "viewports_tested": 4,
-                    "all_responsive": True,
-                    "results": [
-                        {"viewport": "mobile", "width": 375, "height": 667, "status": "passed"},
-                        {"viewport": "tablet", "width": 768, "height": 1024, "status": "passed"},
-                        {"viewport": "desktop", "width": 1920, "height": 1080, "status": "passed"},
-                        {"viewport": "large", "width": 2560, "height": 1440, "status": "passed"}
-                    ]
-                }
-            
-            async with httpx.AsyncClient() as client:
-                headers = {"Content-Type": "application/json"}
-                if self.api_key:
-                    headers["Authorization"] = f"Bearer {self.api_key}"
-                
-                default_viewports = [
-                    {"name": "mobile", "width": 375, "height": 667},
-                    {"name": "tablet", "width": 768, "height": 1024},
-                    {"name": "desktop", "width": 1920, "height": 1080},
-                    {"name": "large", "width": 2560, "height": 1440}
-                ]
-                
-                payload = {
-                    "snapshot_id": snapshot_id,
-                    "url": url,
-                    "viewports": viewports or default_viewports,
-                    "check_layout_shifts": True,
-                    "capture_screenshots": True
-                }
-                
-                response = await client.post(
-                    f"{self.base_url}/test/responsive",
-                    headers=headers,
-                    json=payload,
-                    timeout=120.0
-                )
-                
-                response.raise_for_status()
-                return response.json()
-                
-        except Exception as e:
-            logger.error(f"Error testing responsive design: {e}")
-            return {"status": "error", "error": str(e)}
-    
-    async def get_screenshot(self, snapshot_id: str, url: str, selector: str = None) -> Dict[str, Any]:
-        """Take a screenshot of the application"""
-        try:
-            if not self.enabled:
-                return {
-                    "status": "success",
-                    "screenshot_url": "/mock/screenshot.png",
-                    "timestamp": "2024-01-01T00:00:00Z"
-                }
-            
-            async with httpx.AsyncClient() as client:
-                headers = {"Content-Type": "application/json"}
-                if self.api_key:
-                    headers["Authorization"] = f"Bearer {self.api_key}"
-                
-                payload = {
-                    "snapshot_id": snapshot_id,
-                    "url": url,
-                    "selector": selector,
-                    "full_page": selector is None,
-                    "format": "png"
-                }
-                
-                response = await client.post(
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
                     f"{self.base_url}/screenshot",
-                    headers=headers,
-                    json=payload,
-                    timeout=60.0
-                )
-                
-                response.raise_for_status()
-                return response.json()
-                
+                    headers=self.headers,
+                    json=screenshot_config,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    else:
+                        error_text = await response.text()
+                        raise Exception(f"Screenshot capture failed: {response.status} - {error_text}")
         except Exception as e:
-            logger.error(f"Error taking screenshot: {e}")
-            return {"status": "error", "error": str(e)}
+            return {
+                "success": False,
+                "error": str(e),
+                "screenshot_url": None
+            }
+    
+    def _process_test_results(self, raw_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Process and format test results."""
+        
+        test_results = raw_results.get("test_results", [])
+        passed_tests = [t for t in test_results if t.get("passed", False)]
+        failed_tests = [t for t in test_results if not t.get("passed", False)]
+        
+        # Calculate overall score
+        if test_results:
+            overall_score = (len(passed_tests) / len(test_results)) * 100
+        else:
+            overall_score = 0
+        
+        # Categorize results
+        critical_failures = [t for t in failed_tests if t.get("severity") == "critical"]
+        warnings = [t for t in test_results if t.get("severity") == "warning"]
+        
+        return {
+            "success": len(critical_failures) == 0,
+            "overall_score": round(overall_score, 2),
+            "total_tests": len(test_results),
+            "passed_tests": len(passed_tests),
+            "failed_tests": len(failed_tests),
+            "critical_failures": len(critical_failures),
+            "warnings": len(warnings),
+            "test_results": test_results,
+            "summary": {
+                "homepage_functional": any(t.get("name") == "homepage_functionality" and t.get("passed") for t in test_results),
+                "navigation_working": any(t.get("name") == "navigation_testing" and t.get("passed") for t in test_results),
+                "forms_validated": any(t.get("name") == "form_validation" and t.get("passed") for t in test_results),
+                "responsive_design": any(t.get("name") == "responsive_design" and t.get("passed") for t in test_results),
+                "accessibility_compliant": any(t.get("name") == "accessibility_check" and t.get("passed") for t in test_results),
+                "performance_acceptable": any(t.get("name") == "performance_test" and t.get("passed") for t in test_results)
+            },
+            "recommendations": self._generate_recommendations(failed_tests),
+            "timestamp": raw_results.get("timestamp"),
+            "duration": raw_results.get("duration", 0)
+        }
+    
+    def _generate_recommendations(self, failed_tests: List[Dict[str, Any]]) -> List[str]:
+        """Generate recommendations based on failed tests."""
+        recommendations = []
+        
+        for test in failed_tests:
+            test_name = test.get("name", "unknown")
+            error_message = test.get("error", "")
+            
+            if "homepage" in test_name:
+                recommendations.append("Check homepage loading and basic functionality")
+            elif "navigation" in test_name:
+                recommendations.append("Verify navigation links and menu functionality")
+            elif "form" in test_name:
+                recommendations.append("Review form validation and submission handling")
+            elif "responsive" in test_name:
+                recommendations.append("Test responsive design across different screen sizes")
+            elif "accessibility" in test_name:
+                recommendations.append("Improve accessibility compliance (ARIA labels, keyboard navigation)")
+            elif "performance" in test_name:
+                recommendations.append("Optimize application performance (loading times, resource usage)")
+            else:
+                recommendations.append(f"Address issue in {test_name}: {error_message}")
+        
+        return list(set(recommendations))  # Remove duplicates
+
+# Deployment functions for Web-Eval-Agent
+async def deploy_web_eval_agent(gemini_api_key: str, port: int = 8003) -> Dict[str, Any]:
+    """Deploy Web-Eval-Agent service locally."""
+    
+    try:
+        # Clone the repository if it doesn't exist
+        repo_dir = "/tmp/web-eval-agent"
+        if os.path.exists(repo_dir):
+            shutil.rmtree(repo_dir)
+        
+        # Clone the repository
+        clone_result = subprocess.run([
+            "git", "clone", "https://github.com/Zeeeepa/web-eval-agent.git", repo_dir
+        ], capture_output=True, text=True, timeout=60)
+        
+        if clone_result.returncode != 0:
+            raise Exception(f"Failed to clone web-eval-agent: {clone_result.stderr}")
+        
+        # Install dependencies
+        install_result = subprocess.run([
+            "npm", "install"
+        ], cwd=repo_dir, capture_output=True, text=True, timeout=300)
+        
+        if install_result.returncode != 0:
+            raise Exception(f"Failed to install dependencies: {install_result.stderr}")
+        
+        # Create environment file
+        env_content = f"""
+GEMINI_API_KEY={gemini_api_key}
+PORT={port}
+NODE_ENV=production
+"""
+        
+        with open(os.path.join(repo_dir, ".env"), "w") as f:
+            f.write(env_content)
+        
+        # Start the service in background
+        start_result = subprocess.Popen([
+            "npm", "start"
+        ], cwd=repo_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # Wait a moment for the service to start
+        await asyncio.sleep(5)
+        
+        # Test if service is running
+        client = WebEvalAgentClient(f"http://localhost:{port}", gemini_api_key)
+        try:
+            await client.test_connection()
+            return {
+                "success": True,
+                "service_url": f"http://localhost:{port}",
+                "process_id": start_result.pid,
+                "message": "Web-Eval-Agent deployed successfully"
+            }
+        except Exception as e:
+            start_result.terminate()
+            raise Exception(f"Service deployment failed: {str(e)}")
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Failed to deploy Web-Eval-Agent"
+        }
 

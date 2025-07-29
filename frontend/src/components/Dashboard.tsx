@@ -21,10 +21,11 @@ import {
   GitHub as GitHubIcon,
   ExpandMore as ExpandMoreIcon,
   Notifications as NotificationsIcon,
-  Refresh as RefreshIcon,
+  Settings as SettingsIcon,
 } from '@mui/icons-material';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { EnhancedProjectCard, ProjectData } from './EnhancedProjectCard';
+import SettingsDialog from './SettingsDialog';
 
 // API interfaces
 interface GitHubRepository {
@@ -63,6 +64,7 @@ const Dashboard: React.FC = () => {
   const [projectMenuAnchor, setProjectMenuAnchor] = useState<null | HTMLElement>(null);
   const [notifications, setNotifications] = useState<WebhookNotification[]>([]);
   const [notificationMenuAnchor, setNotificationMenuAnchor] = useState<null | HTMLElement>(null);
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
     message: string;
@@ -290,10 +292,6 @@ const Dashboard: React.FC = () => {
       {/* Header */}
       <AppBar position="static" elevation={1}>
         <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            CodegenCICD Dashboard
-          </Typography>
-
           {/* Project Selector */}
           <Button
             color="inherit"
@@ -305,6 +303,8 @@ const Dashboard: React.FC = () => {
             {reposLoading ? 'Loading...' : 'Select Project'}
           </Button>
 
+          <Box sx={{ flexGrow: 1 }} />
+
           {/* Notifications */}
           <IconButton
             color="inherit"
@@ -315,15 +315,12 @@ const Dashboard: React.FC = () => {
             </Badge>
           </IconButton>
 
-          {/* Refresh */}
+          {/* Settings */}
           <IconButton
             color="inherit"
-            onClick={() => {
-              loadProjects();
-              loadGithubRepos();
-            }}
+            onClick={() => setSettingsDialogOpen(true)}
           >
-            <RefreshIcon />
+            <SettingsIcon />
           </IconButton>
 
           {/* Connection Status */}
@@ -459,6 +456,12 @@ const Dashboard: React.FC = () => {
           </Grid>
         )}
       </Container>
+
+      {/* Settings Dialog */}
+      <SettingsDialog
+        open={settingsDialogOpen}
+        onClose={() => setSettingsDialogOpen(false)}
+      />
 
       {/* Snackbar for notifications */}
       <Snackbar

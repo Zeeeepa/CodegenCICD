@@ -35,6 +35,7 @@ import {
 
 import AgentRunDialog from './AgentRunDialog';
 import ProjectSettingsDialog from './ProjectSettingsDialog';
+import ValidationFlowDialog from './ValidationFlowDialog';
 
 export interface ProjectData {
   id: number;
@@ -97,7 +98,17 @@ export const EnhancedProjectCard: React.FC<EnhancedProjectCardProps> = ({
 }) => {
   const [agentRunDialogOpen, setAgentRunDialogOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [validationDialogOpen, setValidationDialogOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  const [currentPrNumber, setCurrentPrNumber] = useState<number | undefined>();
+  const [currentPrUrl, setCurrentPrUrl] = useState<string | undefined>();
+
+  // Handle PR notifications and trigger validation
+  const handlePrNotification = (prNumber: number, prUrl: string) => {
+    setCurrentPrNumber(prNumber);
+    setCurrentPrUrl(prUrl);
+    setValidationDialogOpen(true);
+  };
 
   // Status indicators
   const getStatusColor = (status: string) => {
@@ -237,7 +248,10 @@ export const EnhancedProjectCard: React.FC<EnhancedProjectCardProps> = ({
                     label={`PR #${project.current_agent_run.pr_number}`}
                     color="info"
                     clickable
-                    onClick={() => project.current_agent_run?.pr_url && window.open(project.current_agent_run.pr_url, '_blank')}
+                    onClick={() => handlePrNotification(
+                      project.current_agent_run!.pr_number!,
+                      project.current_agent_run!.pr_url || ''
+                    )}
                     icon={<GitHubIcon />}
                   />
                 )}
@@ -349,6 +363,14 @@ export const EnhancedProjectCard: React.FC<EnhancedProjectCardProps> = ({
         project={project}
         onUpdate={(updates) => onUpdateProject(project.id, updates)}
         onRunSetupCommands={() => onRunSetupCommands(project.id)}
+      />
+
+      <ValidationFlowDialog
+        open={validationDialogOpen}
+        onClose={() => setValidationDialogOpen(false)}
+        projectId={project.id}
+        prNumber={currentPrNumber}
+        prUrl={currentPrUrl}
       />
     </>
   );

@@ -1,6 +1,8 @@
 # CodegenCICD Dashboard
 
-A comprehensive AI-powered CI/CD dashboard that integrates multiple services for automated code generation, validation, and deployment workflows.
+🚀 **A Comprehensive AI-Powered CI/CD Management System**
+
+A sophisticated dashboard that integrates GitHub projects with AI-powered code generation, automated validation, and comprehensive testing through a complete CI/CD pipeline. The system provides a unified interface for managing projects, running AI agents, and validating changes using cutting-edge tools like web-eval-agent, graph-sitter, and grainchain.
 
 ## 🚀 Overview
 

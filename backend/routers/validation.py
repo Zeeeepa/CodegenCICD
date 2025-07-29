@@ -1,530 +1,448 @@
-"""
-Validation router for CodegenCICD Dashboard
-"""
-from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
-from typing import List, Optional, Dict, Any
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
-import structlog
-import uuid
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import Session
+from typing import Dict, Any, List, Optional
+import os
+from datetime import datetime
 
-from backend.database import AsyncSessionLocal
-from backend.models import Project, ValidationRun, ValidationStep, ValidationResult
-from backend.models.validation import ValidationStatus, ValidationStepType, ValidationStepStatus
-from backend.config import get_settings
+from ..database import get_db
+from ..models.project import Project
+from ..models.settings import EnvironmentVariable, ValidationRun, ValidationStep
+from ..services.validation_service import ValidationService
 
-logger = structlog.get_logger(__name__)
-settings = get_settings()
+router = APIRouter(prefix="/api/validation", tags=["validation"])
 
-router = APIRouter()
-
-
-# Dependency to get database session
-async def get_db() -> AsyncSession:
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
-
-
-# Pydantic models for request/response
-from pydantic import BaseModel, Field
-
-
-class ValidationRunCreate(BaseModel):
-    project_id: str = Field(..., description="Project ID")
-    pr_url: str = Field(..., description="Pull request URL")
-    pr_number: int = Field(..., description="Pull request number")
-    pr_branch: str = Field(..., description="Pull request branch")
-    pr_commit_sha: str = Field(..., description="Pull request commit SHA")
-    agent_run_id: Optional[str] = Field(None, description="Associated agent run ID")
-
-
-class ValidationRunResponse(BaseModel):
-    id: str
-    project_id: str
-    agent_run_id: Optional[str]
-    pr_url: str
-    pr_number: int
-    pr_branch: str
-    pr_commit_sha: str
-    status: str
-    current_step_index: int
-    progress_percentage: int
-    started_at: Optional[str]
-    completed_at: Optional[str]
-    duration_seconds: Optional[int]
-    overall_score: Optional[float]
-    passed_steps: int
-    failed_steps: int
-    skipped_steps: int
-    auto_merge_eligible: bool
-    auto_merge_executed: bool
-    auto_merge_reason: Optional[str]
-    error_message: Optional[str]
-    retry_count: int
-    max_retries: int
-    grainchain_snapshot_id: Optional[str]
-    web_eval_session_id: Optional[str]
-    created_at: str
-    updated_at: str
+def get_environment_variables(db: Session) -> Dict[str, str]:
+    """Get all environment variables from database."""
+    env_vars = {}
     
-    class Config:
-        from_attributes = True
-
-
-class ValidationStepResponse(BaseModel):
-    id: str
-    validation_run_id: str
-    step_index: int
-    step_type: str
-    step_name: str
-    step_description: Optional[str]
-    status: str
-    started_at: Optional[str]
-    completed_at: Optional[str]
-    duration_seconds: Optional[int]
-    confidence_score: Optional[float]
-    weight: float
-    is_critical: bool
-    retry_count: int
-    max_retries: int
-    external_service_id: Optional[str]
-    external_service_url: Optional[str]
-    logs: Optional[str]
-    error_message: Optional[str]
-    created_at: str
-    updated_at: str
+    # Get from database
+    db_vars = db.query(EnvironmentVariable).all()
+    for var in db_vars:
+        env_vars[var.key] = var.get_value()
     
-    class Config:
-        from_attributes = True
+    # Fallback to OS environment
+    required_vars = [
+        "CODEGEN_ORG_ID", "CODEGEN_API_TOKEN", "GITHUB_TOKEN", 
+        "GEMINI_API_KEY", "CLOUDFLARE_API_KEY", "CLOUDFLARE_ACCOUNT_ID",
+        "GRAINCHAIN_URL", "GRAPH_SITTER_URL", "WEB_EVAL_AGENT_URL"
+    ]
+    
+    for var in required_vars:
+        if var not in env_vars:
+            env_vars[var] = os.getenv(var, "")
+    
+    return env_vars
 
-
-@router.get("/", response_model=List[ValidationRunResponse])
-async def list_validation_runs(
-    project_id: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
-    db: AsyncSession = Depends(get_db)
-) -> List[ValidationRunResponse]:
-    """List validation runs with optional filtering"""
+@router.post("/start")
+async def start_validation_pipeline(
+    request: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """Start the comprehensive validation pipeline for a PR."""
     try:
-        # Build query
-        query = select(ValidationRun)
+        project_id = request.get("project_id")
+        pr_number = request.get("pr_number")
+        pr_url = request.get("pr_url")
         
-        if project_id:
-            # Validate UUID
-            try:
-                uuid.UUID(project_id)
-                query = query.where(ValidationRun.project_id == project_id)
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid project ID format")
+        if not all([project_id, pr_number, pr_url]):
+            raise HTTPException(
+                status_code=400, 
+                detail="project_id, pr_number, and pr_url are required"
+            )
         
-        if status:
-            try:
-                status_enum = ValidationStatus(status)
-                query = query.where(ValidationRun.status == status_enum)
-            except ValueError:
-                raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
-        
-        query = query.offset(skip).limit(limit).order_by(ValidationRun.created_at.desc())
-        
-        # Execute query
-        result = await db.execute(query)
-        validation_runs = result.scalars().all()
-        
-        logger.info("Listed validation runs", 
-                   count=len(validation_runs), 
-                   project_id=project_id,
-                   status=status)
-        
-        return [ValidationRunResponse.from_orm(run) for run in validation_runs]
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to list validation runs", error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to retrieve validation runs")
-
-
-@router.post("/", response_model=ValidationRunResponse, status_code=201)
-async def create_validation_run(
-    run_data: ValidationRunCreate,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
-) -> ValidationRunResponse:
-    """Create a new validation run"""
-    try:
-        # Validate project exists
-        project_query = select(Project).where(Project.id == run_data.project_id)
-        result = await db.execute(project_query)
-        project = result.scalar_one_or_none()
-        
+        # Get project details
+        project = db.query(Project).filter(Project.id == project_id).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         
-        if not project.is_active:
-            raise HTTPException(status_code=400, detail="Project is not active")
+        # Get setup commands
+        setup_commands = request.get("setup_commands", project.setup_commands or [])
         
-        if not project.validation_enabled:
-            raise HTTPException(status_code=400, detail="Validation is disabled for this project")
+        # Get environment variables
+        env_vars = get_environment_variables(db)
         
-        # Check if validation run already exists for this PR
-        existing_query = select(ValidationRun).where(
-            and_(
-                ValidationRun.project_id == run_data.project_id,
-                ValidationRun.pr_number == run_data.pr_number,
-                ValidationRun.status.in_([ValidationStatus.PENDING, ValidationStatus.RUNNING])
-            )
-        )
-        result = await db.execute(existing_query)
-        existing_run = result.scalar_one_or_none()
-        
-        if existing_run:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Validation run already exists for PR #{run_data.pr_number}"
-            )
-        
-        # Create validation run record
-        validation_run = ValidationRun(
-            project_id=run_data.project_id,
-            agent_run_id=run_data.agent_run_id,
-            pr_url=run_data.pr_url,
-            pr_number=run_data.pr_number,
-            pr_branch=run_data.pr_branch,
-            pr_commit_sha=run_data.pr_commit_sha,
-            status=ValidationStatus.PENDING,
-            current_step_index=0,
-            progress_percentage=0
-        )
-        
-        db.add(validation_run)
-        await db.commit()
-        await db.refresh(validation_run)
-        
-        # Create validation steps
-        await _create_validation_steps(validation_run.id, project, db)
-        
-        # Start validation pipeline in background
-        background_tasks.add_task(
-            _execute_validation_pipeline,
-            str(validation_run.id)
-        )
-        
-        logger.info("Created validation run", 
-                   validation_run_id=str(validation_run.id),
-                   project_id=run_data.project_id,
-                   pr_number=run_data.pr_number)
-        
-        return ValidationRunResponse.from_orm(validation_run)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to create validation run", error=str(e))
-        await db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to create validation run")
-
-
-@router.get("/{validation_run_id}", response_model=ValidationRunResponse)
-async def get_validation_run(
-    validation_run_id: str,
-    db: AsyncSession = Depends(get_db)
-) -> ValidationRunResponse:
-    """Get a specific validation run by ID"""
-    try:
-        # Validate UUID
-        try:
-            uuid.UUID(validation_run_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid validation run ID format")
-        
-        # Get validation run
-        query = select(ValidationRun).where(ValidationRun.id == validation_run_id)
-        result = await db.execute(query)
-        validation_run = result.scalar_one_or_none()
-        
-        if not validation_run:
-            raise HTTPException(status_code=404, detail="Validation run not found")
-        
-        return ValidationRunResponse.from_orm(validation_run)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to get validation run", validation_run_id=validation_run_id, error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to retrieve validation run")
-
-
-@router.get("/{validation_run_id}/steps", response_model=List[ValidationStepResponse])
-async def get_validation_steps(
-    validation_run_id: str,
-    db: AsyncSession = Depends(get_db)
-) -> List[ValidationStepResponse]:
-    """Get steps for a validation run"""
-    try:
-        # Validate UUID
-        try:
-            uuid.UUID(validation_run_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid validation run ID format")
-        
-        # Get validation steps
-        query = select(ValidationStep).where(
-            ValidationStep.validation_run_id == validation_run_id
-        ).order_by(ValidationStep.step_index)
-        
-        result = await db.execute(query)
-        steps = result.scalars().all()
-        
-        return [ValidationStepResponse.from_orm(step) for step in steps]
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to get validation steps", validation_run_id=validation_run_id, error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to retrieve validation steps")
-
-
-@router.get("/{validation_run_id}/results")
-async def get_validation_results(
-    validation_run_id: str,
-    db: AsyncSession = Depends(get_db)
-) -> List[Dict[str, Any]]:
-    """Get results for a validation run"""
-    try:
-        # Validate UUID
-        try:
-            uuid.UUID(validation_run_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid validation run ID format")
-        
-        # Get validation results
-        query = select(ValidationResult).where(
-            ValidationResult.validation_run_id == validation_run_id
-        ).order_by(ValidationResult.result_type, ValidationResult.result_name)
-        
-        result = await db.execute(query)
-        results = result.scalars().all()
-        
-        return [result.to_dict() for result in results]
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to get validation results", validation_run_id=validation_run_id, error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to retrieve validation results")
-
-
-@router.post("/{validation_run_id}/retry", response_model=ValidationRunResponse)
-async def retry_validation_run(
-    validation_run_id: str,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
-) -> ValidationRunResponse:
-    """Retry a failed validation run"""
-    try:
-        # Validate UUID
-        try:
-            uuid.UUID(validation_run_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid validation run ID format")
-        
-        # Get validation run
-        query = select(ValidationRun).where(ValidationRun.id == validation_run_id)
-        result = await db.execute(query)
-        validation_run = result.scalar_one_or_none()
-        
-        if not validation_run:
-            raise HTTPException(status_code=404, detail="Validation run not found")
-        
-        if validation_run.status not in [ValidationStatus.FAILED, ValidationStatus.CANCELLED]:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Cannot retry validation run with status: {validation_run.status.value}"
-            )
-        
-        if validation_run.retry_count >= validation_run.max_retries:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Maximum retries ({validation_run.max_retries}) exceeded"
-            )
-        
-        # Reset validation run for retry
-        validation_run.status = ValidationStatus.PENDING
-        validation_run.current_step_index = 0
-        validation_run.progress_percentage = 0
-        validation_run.retry_count += 1
-        validation_run.error_message = None
-        validation_run.started_at = None
-        validation_run.completed_at = None
-        validation_run.duration_seconds = None
-        
-        # Reset all steps
-        steps_query = select(ValidationStep).where(ValidationStep.validation_run_id == validation_run_id)
-        result = await db.execute(steps_query)
-        steps = result.scalars().all()
-        
-        for step in steps:
-            step.status = ValidationStepStatus.PENDING
-            step.started_at = None
-            step.completed_at = None
-            step.duration_seconds = None
-            step.confidence_score = None
-            step.logs = None
-            step.error_message = None
-            step.retry_count = 0
-        
-        await db.commit()
-        
-        # Start validation pipeline in background
-        background_tasks.add_task(
-            _execute_validation_pipeline,
-            str(validation_run.id)
-        )
-        
-        logger.info("Retrying validation run", 
-                   validation_run_id=validation_run_id,
-                   retry_count=validation_run.retry_count)
-        
-        return ValidationRunResponse.from_orm(validation_run)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to retry validation run", validation_run_id=validation_run_id, error=str(e))
-        await db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to retry validation run")
-
-
-# Helper functions
-async def _create_validation_steps(validation_run_id: str, project: Project, db: AsyncSession) -> None:
-    """Create the 7 validation steps for a validation run"""
-    steps_config = [
-        {
-            "step_index": 0,
-            "step_type": ValidationStepType.SNAPSHOT_CREATION,
-            "step_name": "Snapshot Creation",
-            "step_description": "Create grainchain sandbox environment",
-            "weight": 1.0,
-            "is_critical": True
-        },
-        {
-            "step_index": 1,
-            "step_type": ValidationStepType.CODE_CLONE,
-            "step_name": "Code Clone",
-            "step_description": "Clone PR branch to sandbox",
-            "weight": 1.0,
-            "is_critical": True
-        },
-        {
-            "step_index": 2,
-            "step_type": ValidationStepType.CODE_ANALYSIS,
-            "step_name": "Code Analysis",
-            "step_description": "Run graph-sitter code quality analysis",
-            "weight": 2.0,
-            "is_critical": False
-        },
-        {
-            "step_index": 3,
-            "step_type": ValidationStepType.DEPLOYMENT,
-            "step_name": "Deployment",
-            "step_description": "Execute project setup commands",
-            "weight": 2.0,
-            "is_critical": True
-        },
-        {
-            "step_index": 4,
-            "step_type": ValidationStepType.DEPLOYMENT_VALIDATION,
-            "step_name": "Deployment Validation",
-            "step_description": "Validate deployment success with Gemini AI",
-            "weight": 2.0,
-            "is_critical": True
-        },
-        {
-            "step_index": 5,
-            "step_type": ValidationStepType.UI_TESTING,
-            "step_name": "UI Testing",
-            "step_description": "Run comprehensive web-eval-agent tests",
-            "weight": 3.0,
-            "is_critical": False
-        },
-        {
-            "step_index": 6,
-            "step_type": ValidationStepType.AUTO_MERGE,
-            "step_name": "Auto-merge",
-            "step_description": "Check auto-merge eligibility and execute if applicable",
-            "weight": 1.0,
-            "is_critical": False
-        }
-    ]
-    
-    for step_config in steps_config:
-        # Skip steps based on project configuration
-        if step_config["step_type"] == ValidationStepType.CODE_ANALYSIS and not project.graph_sitter_enabled:
-            continue
-        if step_config["step_type"] == ValidationStepType.UI_TESTING and not project.web_eval_enabled:
-            continue
-        if step_config["step_type"] == ValidationStepType.AUTO_MERGE and not project.auto_merge_enabled:
-            continue
-        
-        step = ValidationStep(
-            validation_run_id=validation_run_id,
-            step_index=step_config["step_index"],
-            step_type=step_config["step_type"],
-            step_name=step_config["step_name"],
-            step_description=step_config["step_description"],
-            weight=step_config["weight"],
-            is_critical=step_config["is_critical"],
-            status=ValidationStepStatus.PENDING
-        )
-        
-        db.add(step)
-    
-    await db.commit()
-
-
-async def _execute_validation_pipeline(validation_run_id: str) -> None:
-    """Execute validation pipeline in background using ValidationService"""
-    try:
-        from backend.services.validation_service import ValidationService
-        
-        # Initialize and use validation service
+        # Initialize validation service
         validation_service = ValidationService()
-        await validation_service.initialize()
         
-        try:
-            await validation_service.execute_validation_pipeline(validation_run_id)
-        finally:
-            await validation_service.close()
-            
+        # Start validation pipeline
+        validation_id = await validation_service.start_validation_pipeline(
+            project_id=project_id,
+            pr_number=pr_number,
+            pr_url=pr_url,
+            setup_commands=setup_commands,
+            env_vars=env_vars,
+            db=db
+        )
+        
+        return {
+            "success": True,
+            "validation_id": validation_id,
+            "message": "Validation pipeline started",
+            "project_name": project.name,
+            "pr_number": pr_number
+        }
+        
     except Exception as e:
-        logger.error("Failed to execute validation pipeline",
-                    validation_run_id=validation_run_id,
-                    error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to start validation: {str(e)}")
+
+@router.get("/status/{validation_id}")
+async def get_validation_status(
+    validation_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get the current status of a validation run."""
+    try:
+        validation_service = ValidationService()
+        status = await validation_service.get_validation_status(validation_id, db)
         
-        # Update status to failed
-        try:
-            async with AsyncSessionLocal() as db:
-                query = select(ValidationRun).where(ValidationRun.id == validation_run_id)
-                result = await db.execute(query)
-                validation_run = result.scalar_one_or_none()
-                
-                if validation_run:
-                    validation_run.status = ValidationStatus.FAILED
-                    validation_run.error_message = str(e)
-                    validation_run.completed_at = _get_timestamp()
-                    await db.commit()
-        except Exception as update_error:
-            logger.error("Failed to update validation run status after error",
-                        validation_run_id=validation_run_id,
-                        error=str(update_error))
+        return {
+            "success": True,
+            "validation": status
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get validation status: {str(e)}")
 
+@router.get("/history/{project_id}")
+async def get_validation_history(
+    project_id: int,
+    limit: int = 20,
+    db: Session = Depends(get_db)
+):
+    """Get validation history for a project."""
+    try:
+        validation_runs = db.query(ValidationRun).filter(
+            ValidationRun.project_id == project_id
+        ).order_by(ValidationRun.started_at.desc()).limit(limit).all()
+        
+        history = []
+        for run in validation_runs:
+            # Get steps for this run
+            steps = db.query(ValidationStep).filter(
+                ValidationStep.validation_id == run.id
+            ).all()
+            
+            history.append({
+                "validation_id": run.id,
+                "pr_number": run.pr_number,
+                "pr_url": run.pr_url,
+                "status": run.status,
+                "success": run.success,
+                "error_context": run.error_context,
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+                "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+                "duration": (
+                    (run.completed_at - run.started_at).total_seconds()
+                    if run.completed_at and run.started_at else None
+                ),
+                "steps_completed": len([s for s in steps if s.status == "completed"]),
+                "total_steps": len(steps)
+            })
+        
+        return {
+            "success": True,
+            "validation_history": history,
+            "total": len(history)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get validation history: {str(e)}")
 
-def _get_timestamp() -> str:
-    """Get current timestamp in ISO format"""
-    from datetime import datetime
-    return datetime.utcnow().isoformat() + "Z"
+@router.post("/retry/{validation_id}")
+async def retry_validation(
+    validation_id: str,
+    db: Session = Depends(get_db)
+):
+    """Retry a failed validation run."""
+    try:
+        # Get the original validation run
+        validation_run = db.query(ValidationRun).filter(
+            ValidationRun.id == validation_id
+        ).first()
+        
+        if not validation_run:
+            raise HTTPException(status_code=404, detail="Validation run not found")
+        
+        if validation_run.status not in ["failed", "completed"]:
+            raise HTTPException(status_code=400, detail="Can only retry failed or completed validations")
+        
+        # Get project details
+        project = db.query(Project).filter(Project.id == validation_run.project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Get environment variables
+        env_vars = get_environment_variables(db)
+        
+        # Initialize validation service
+        validation_service = ValidationService()
+        
+        # Start new validation pipeline
+        new_validation_id = await validation_service.start_validation_pipeline(
+            project_id=validation_run.project_id,
+            pr_number=validation_run.pr_number,
+            pr_url=validation_run.pr_url,
+            setup_commands=project.setup_commands or [],
+            env_vars=env_vars,
+            db=db
+        )
+        
+        return {
+            "success": True,
+            "new_validation_id": new_validation_id,
+            "original_validation_id": validation_id,
+            "message": "Validation retry started"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retry validation: {str(e)}")
+
+@router.delete("/{validation_id}")
+async def cancel_validation(
+    validation_id: str,
+    db: Session = Depends(get_db)
+):
+    """Cancel a running validation."""
+    try:
+        validation_run = db.query(ValidationRun).filter(
+            ValidationRun.id == validation_id
+        ).first()
+        
+        if not validation_run:
+            raise HTTPException(status_code=404, detail="Validation run not found")
+        
+        if validation_run.status != "running":
+            raise HTTPException(status_code=400, detail="Can only cancel running validations")
+        
+        # Update status to cancelled
+        validation_run.status = "cancelled"
+        validation_run.completed_at = datetime.utcnow()
+        validation_run.error_context = "Validation cancelled by user"
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "Validation cancelled",
+            "validation_id": validation_id
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to cancel validation: {str(e)}")
+
+@router.get("/logs/{validation_id}")
+async def get_validation_logs(
+    validation_id: str,
+    step_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Get logs for a validation run or specific step."""
+    try:
+        if step_id:
+            # Get logs for specific step
+            step = db.query(ValidationStep).filter(
+                ValidationStep.validation_id == validation_id,
+                ValidationStep.step_id == step_id
+            ).first()
+            
+            if not step:
+                raise HTTPException(status_code=404, detail="Validation step not found")
+            
+            return {
+                "success": True,
+                "step_id": step_id,
+                "logs": step.logs or [],
+                "error_message": step.error_message,
+                "status": step.status
+            }
+        else:
+            # Get logs for all steps
+            steps = db.query(ValidationStep).filter(
+                ValidationStep.validation_id == validation_id
+            ).order_by(ValidationStep.started_at).all()
+            
+            all_logs = []
+            for step in steps:
+                step_logs = {
+                    "step_id": step.step_id,
+                    "status": step.status,
+                    "logs": step.logs or [],
+                    "error_message": step.error_message,
+                    "started_at": step.started_at.isoformat() if step.started_at else None,
+                    "completed_at": step.completed_at.isoformat() if step.completed_at else None
+                }
+                all_logs.append(step_logs)
+            
+            return {
+                "success": True,
+                "validation_id": validation_id,
+                "steps": all_logs
+            }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get validation logs: {str(e)}")
+
+@router.post("/test-services")
+async def test_validation_services(db: Session = Depends(get_db)):
+    """Test connectivity to all validation services."""
+    try:
+        env_vars = get_environment_variables(db)
+        validation_service = ValidationService()
+        
+        # Initialize clients
+        await validation_service.initialize_clients(env_vars)
+        
+        test_results = {}
+        
+        # Test Grainchain
+        if validation_service.grainchain_client:
+            try:
+                await validation_service.grainchain_client.test_connection()
+                test_results["grainchain"] = {"status": "success", "message": "Connected"}
+            except Exception as e:
+                test_results["grainchain"] = {"status": "error", "message": str(e)}
+        else:
+            test_results["grainchain"] = {"status": "error", "message": "Client not initialized"}
+        
+        # Test Graph-Sitter
+        if validation_service.graph_sitter_client:
+            try:
+                await validation_service.graph_sitter_client.test_connection()
+                test_results["graph_sitter"] = {"status": "success", "message": "Connected"}
+            except Exception as e:
+                test_results["graph_sitter"] = {"status": "error", "message": str(e)}
+        else:
+            test_results["graph_sitter"] = {"status": "error", "message": "Client not initialized"}
+        
+        # Test Web-Eval-Agent
+        if validation_service.web_eval_agent_client:
+            try:
+                await validation_service.web_eval_agent_client.test_connection()
+                test_results["web_eval_agent"] = {"status": "success", "message": "Connected"}
+            except Exception as e:
+                test_results["web_eval_agent"] = {"status": "error", "message": str(e)}
+        else:
+            test_results["web_eval_agent"] = {"status": "error", "message": "Client not initialized"}
+        
+        # Test GitHub
+        if validation_service.github_client:
+            try:
+                await validation_service.github_client.test_connection()
+                test_results["github"] = {"status": "success", "message": "Connected"}
+            except Exception as e:
+                test_results["github"] = {"status": "error", "message": str(e)}
+        else:
+            test_results["github"] = {"status": "error", "message": "Client not initialized"}
+        
+        # Test Codegen
+        if validation_service.codegen_client:
+            try:
+                await validation_service.codegen_client.test_connection()
+                test_results["codegen"] = {"status": "success", "message": "Connected"}
+            except Exception as e:
+                test_results["codegen"] = {"status": "error", "message": str(e)}
+        else:
+            test_results["codegen"] = {"status": "error", "message": "Client not initialized"}
+        
+        # Calculate success rate
+        successful_tests = len([r for r in test_results.values() if r["status"] == "success"])
+        total_tests = len(test_results)
+        success_rate = (successful_tests / total_tests * 100) if total_tests > 0 else 0
+        
+        return {
+            "success": success_rate > 50,  # Consider successful if more than half pass
+            "test_results": test_results,
+            "success_rate": success_rate,
+            "passed": successful_tests,
+            "total": total_tests,
+            "timestamp": datetime.now().timestamp()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Service testing failed: {str(e)}")
+
+@router.get("/metrics/{project_id}")
+async def get_validation_metrics(
+    project_id: int,
+    days: int = 30,
+    db: Session = Depends(get_db)
+):
+    """Get validation metrics for a project."""
+    try:
+        from datetime import timedelta
+        
+        # Get validation runs from the last N days
+        since_date = datetime.utcnow() - timedelta(days=days)
+        
+        validation_runs = db.query(ValidationRun).filter(
+            ValidationRun.project_id == project_id,
+            ValidationRun.started_at >= since_date
+        ).all()
+        
+        if not validation_runs:
+            return {
+                "success": True,
+                "metrics": {
+                    "total_validations": 0,
+                    "success_rate": 0,
+                    "average_duration": 0,
+                    "failure_reasons": {}
+                }
+            }
+        
+        # Calculate metrics
+        total_validations = len(validation_runs)
+        successful_validations = len([r for r in validation_runs if r.success])
+        success_rate = (successful_validations / total_validations * 100) if total_validations > 0 else 0
+        
+        # Calculate average duration
+        completed_runs = [r for r in validation_runs if r.completed_at and r.started_at]
+        if completed_runs:
+            total_duration = sum(
+                (r.completed_at - r.started_at).total_seconds() 
+                for r in completed_runs
+            )
+            average_duration = total_duration / len(completed_runs)
+        else:
+            average_duration = 0
+        
+        # Analyze failure reasons
+        failed_runs = [r for r in validation_runs if not r.success and r.error_context]
+        failure_reasons = {}
+        for run in failed_runs:
+            # Extract failure type from error context
+            error_context = run.error_context.lower()
+            if "snapshot" in error_context:
+                failure_type = "snapshot_creation"
+            elif "clone" in error_context or "git" in error_context:
+                failure_type = "codebase_cloning"
+            elif "setup" in error_context or "install" in error_context:
+                failure_type = "setup_commands"
+            elif "deployment" in error_context:
+                failure_type = "deployment_validation"
+            elif "graph" in error_context or "analysis" in error_context:
+                failure_type = "static_analysis"
+            elif "web-eval" in error_context or "testing" in error_context:
+                failure_type = "ui_testing"
+            else:
+                failure_type = "unknown"
+            
+            failure_reasons[failure_type] = failure_reasons.get(failure_type, 0) + 1
+        
+        return {
+            "success": True,
+            "metrics": {
+                "total_validations": total_validations,
+                "successful_validations": successful_validations,
+                "failed_validations": total_validations - successful_validations,
+                "success_rate": round(success_rate, 2),
+                "average_duration": round(average_duration, 2),
+                "failure_reasons": failure_reasons,
+                "period_days": days
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get validation metrics: {str(e)}")
+
