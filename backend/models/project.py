@@ -1,126 +1,211 @@
 """
-Project-related database models
+Project models for persistent storage
 """
-from typing import Dict, Any, Optional, List
-from sqlalchemy import Column, String, Text, Boolean, JSON, ForeignKey, Integer
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, JSON, ForeignKey
+from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-from .base import BaseModel
+from sqlalchemy.sql import func
+from typing import Dict, Any, Optional, List
+import json
+
+Base = declarative_base()
 
 
-class Project(BaseModel):
-    """Project model representing a GitHub repository and its CI/CD configuration"""
+class Project(Base):
+    """Project model for storing GitHub project configurations"""
     __tablename__ = "projects"
     
-    # Basic project information
+    id = Column(Integer, primary_key=True, index=True)
+    github_id = Column(Integer, unique=True, index=True)  # GitHub repo ID
     name = Column(String(255), nullable=False, index=True)
+    full_name = Column(String(500), nullable=False)  # owner/repo
     description = Column(Text)
-    
-    # GitHub repository information
     github_owner = Column(String(255), nullable=False)
     github_repo = Column(String(255), nullable=False)
-    github_branch = Column(String(255), default="main", nullable=False)
     github_url = Column(String(500), nullable=False)
+    default_branch = Column(String(100), default="main")
     
     # Webhook configuration
     webhook_url = Column(String(500))
+    webhook_active = Column(Boolean, default=False)
     webhook_secret = Column(String(255))
-    webhook_active = Column(Boolean, default=True, nullable=False)
     
-    # Project status and settings
-    is_active = Column(Boolean, default=True, nullable=False)
-    auto_merge_enabled = Column(Boolean, default=False, nullable=False)
-    auto_merge_threshold = Column(Integer, default=80)  # Confidence threshold for auto-merge
+    # Project settings
+    auto_confirm_plans = Column(Boolean, default=False)
+    auto_merge_validated_pr = Column(Boolean, default=False)
+    planning_statement = Column(Text)
+    repository_rules = Column(Text)
     
-    # Configuration tier (basic, intermediate, advanced)
-    config_tier = Column(String(50), default="basic", nullable=False)
+    # Setup commands
+    setup_commands = Column(Text)
+    setup_branch = Column(String(100))
     
-    # Validation settings
-    validation_enabled = Column(Boolean, default=True, nullable=False)
-    grainchain_enabled = Column(Boolean, default=True, nullable=False)
-    web_eval_enabled = Column(Boolean, default=True, nullable=False)
-    graph_sitter_enabled = Column(Boolean, default=True, nullable=False)
-    
-    # Metadata
-    metadata = Column(JSON, default=dict)
+    # Status and metadata
+    is_active = Column(Boolean, default=True)
+    pinned_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    configurations = relationship("ProjectConfiguration", back_populates="project", cascade="all, delete-orphan")
     secrets = relationship("ProjectSecret", back_populates="project", cascade="all, delete-orphan")
-    agent_runs = relationship("AgentRun", back_populates="project", cascade="all, delete-orphan")
-    validation_runs = relationship("ValidationRun", back_populates="project", cascade="all, delete-orphan")
+    agent_runs = relationship("ProjectAgentRun", back_populates="project", cascade="all, delete-orphan")
     
-    def __repr__(self) -> str:
-        return f"<Project(name={self.name}, github={self.github_owner}/{self.github_repo})>"
-    
-    @property
-    def full_github_name(self) -> str:
-        """Get full GitHub repository name"""
-        return f"{self.github_owner}/{self.github_repo}"
-    
-    @property
-    def github_clone_url(self) -> str:
-        """Get GitHub clone URL"""
-        return f"https://github.com/{self.github_owner}/{self.github_repo}.git"
-    
-    def get_configuration(self, config_type: str) -> Optional["ProjectConfiguration"]:
-        """Get specific configuration by type"""
-        for config in self.configurations:
-            if config.config_type == config_type:
-                return config
-        return None
-    
-    def get_secret(self, secret_name: str) -> Optional["ProjectSecret"]:
-        """Get specific secret by name"""
-        for secret in self.secrets:
-            if secret.name == secret_name:
-                return secret
-        return None
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        return {
+            "id": self.id,
+            "github_id": self.github_id,
+            "name": self.name,
+            "full_name": self.full_name,
+            "description": self.description,
+            "github_owner": self.github_owner,
+            "github_repo": self.github_repo,
+            "github_url": self.github_url,
+            "default_branch": self.default_branch,
+            "webhook_url": self.webhook_url,
+            "webhook_active": self.webhook_active,
+            "auto_confirm_plans": self.auto_confirm_plans,
+            "auto_merge_validated_pr": self.auto_merge_validated_pr,
+            "planning_statement": self.planning_statement,
+            "repository_rules": self.repository_rules,
+            "setup_commands": self.setup_commands,
+            "setup_branch": self.setup_branch,
+            "is_active": self.is_active,
+            "pinned_at": self.pinned_at.isoformat() if self.pinned_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "has_repository_rules": bool(self.repository_rules and self.repository_rules.strip()),
+            "has_setup_commands": bool(self.setup_commands and self.setup_commands.strip()),
+            "has_planning_statement": bool(self.planning_statement and self.planning_statement.strip()),
+            "secrets_count": len(self.secrets) if self.secrets else 0,
+        }
 
 
-class ProjectConfiguration(BaseModel):
-    """Project configuration for different aspects (repository rules, setup commands, etc.)"""
-    __tablename__ = "project_configurations"
-    
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
-    
-    # Configuration type (repository_rules, setup_commands, planning_statement, etc.)
-    config_type = Column(String(100), nullable=False, index=True)
-    
-    # Configuration content
-    content = Column(Text, nullable=False)
-    
-    # Configuration metadata
-    is_active = Column(Boolean, default=True, nullable=False)
-    version = Column(Integer, default=1, nullable=False)
-    metadata = Column(JSON, default=dict)
-    
-    # Relationships
-    project = relationship("Project", back_populates="configurations")
-    
-    def __repr__(self) -> str:
-        return f"<ProjectConfiguration(project_id={self.project_id}, type={self.config_type})>"
-
-
-class ProjectSecret(BaseModel):
-    """Encrypted secrets for projects"""
+class ProjectSecret(Base):
+    """Project environment variables/secrets"""
     __tablename__ = "project_secrets"
     
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
-    
-    # Secret information
-    name = Column(String(255), nullable=False, index=True)
-    encrypted_value = Column(Text, nullable=False)  # Encrypted with Fernet
-    description = Column(Text)
-    
-    # Secret metadata
-    is_active = Column(Boolean, default=True, nullable=False)
-    last_used_at = Column(String(50))  # ISO timestamp as string
-    metadata = Column(JSON, default=dict)
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    key = Column(String(255), nullable=False)
+    value = Column(Text, nullable=False)  # Should be encrypted in production
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
     project = relationship("Project", back_populates="secrets")
     
-    def __repr__(self) -> str:
-        return f"<ProjectSecret(project_id={self.project_id}, name={self.name})>"
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "key": self.key,
+            "value": self.value,  # In production, this should be masked
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class ProjectAgentRun(Base):
+    """Agent runs associated with projects"""
+    __tablename__ = "project_agent_runs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    codegen_run_id = Column(Integer, index=True)  # ID from Codegen API
+    
+    # Run details
+    target_text = Column(Text, nullable=False)
+    status = Column(String(50), default="pending")  # pending, running, completed, failed, cancelled
+    run_type = Column(String(50), default="regular")  # regular, plan, pr
+    
+    # Response data
+    response_data = Column(JSON)
+    pr_number = Column(Integer)
+    pr_url = Column(String(500))
+    
+    # Validation
+    validation_status = Column(String(50))  # pending, running, passed, failed
+    validation_logs = Column(JSON)
+    
+    # Timestamps
+    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    project = relationship("Project", back_populates="agent_runs")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "codegen_run_id": self.codegen_run_id,
+            "target_text": self.target_text,
+            "status": self.status,
+            "run_type": self.run_type,
+            "response_data": self.response_data,
+            "pr_number": self.pr_number,
+            "pr_url": self.pr_url,
+            "validation_status": self.validation_status,
+            "validation_logs": self.validation_logs,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class ValidationRun(Base):
+    """Validation runs for PR testing"""
+    __tablename__ = "validation_runs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    agent_run_id = Column(Integer, ForeignKey("project_agent_runs.id"), nullable=False)
+    pr_number = Column(Integer, nullable=False)
+    
+    # Validation steps
+    snapshot_created = Column(Boolean, default=False)
+    codebase_cloned = Column(Boolean, default=False)
+    deployment_successful = Column(Boolean, default=False)
+    web_eval_passed = Column(Boolean, default=False)
+    
+    # Logs and results
+    deployment_logs = Column(JSON)
+    web_eval_results = Column(JSON)
+    error_logs = Column(JSON)
+    
+    # Status
+    status = Column(String(50), default="pending")  # pending, running, passed, failed
+    retry_count = Column(Integer, default=0)
+    
+    # Timestamps
+    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        return {
+            "id": self.id,
+            "agent_run_id": self.agent_run_id,
+            "pr_number": self.pr_number,
+            "snapshot_created": self.snapshot_created,
+            "codebase_cloned": self.codebase_cloned,
+            "deployment_successful": self.deployment_successful,
+            "web_eval_passed": self.web_eval_passed,
+            "deployment_logs": self.deployment_logs,
+            "web_eval_results": self.web_eval_results,
+            "error_logs": self.error_logs,
+            "status": self.status,
+            "retry_count": self.retry_count,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
 

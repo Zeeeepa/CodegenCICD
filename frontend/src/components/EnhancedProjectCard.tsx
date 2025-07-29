@@ -81,17 +81,19 @@ export interface ProjectData {
 interface EnhancedProjectCardProps {
   project: ProjectData;
   onAgentRun: (projectId: number, target: string) => void;
+  onAgentRunContinue: (projectId: number, runId: number, message: string) => void;
   onUpdateProject: (projectId: number, updates: Partial<ProjectData>) => void;
   onDeleteProject: (projectId: number) => void;
-  onRefreshProject: (projectId: number) => void;
+  onRunSetupCommands: (projectId: number) => void;
 }
 
 export const EnhancedProjectCard: React.FC<EnhancedProjectCardProps> = ({
   project,
   onAgentRun,
+  onAgentRunContinue,
   onUpdateProject,
   onDeleteProject,
-  onRefreshProject,
+  onRunSetupCommands,
 }) => {
   const [agentRunDialogOpen, setAgentRunDialogOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);

@@ -1,361 +1,412 @@
 # CodegenCICD Dashboard
 
-## 🚀 AI-Powered CI/CD Management System
+A comprehensive AI-powered CI/CD dashboard that integrates multiple services for automated code generation, validation, and deployment workflows.
 
-A comprehensive dashboard for managing AI-driven continuous integration and deployment workflows using the Codegen Agent API. This system provides an intuitive interface for project management, environment configuration, and automated validation flows.
+## 🚀 Overview
 
-## 📋 Table of Contents
-
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Features](#features)
-- [Installation](#installation)
-- [Usage](#usage)
-- [API Reference](#api-reference)
-- [Project Structure](#project-structure)
-- [Environment Variables](#environment-variables)
-- [Contributing](#contributing)
-
-## 🎯 Overview
-
-CodegenCICD Dashboard is a modern web application that bridges the gap between AI-powered code generation and traditional CI/CD pipelines. It leverages multiple specialized tools to provide a complete development workflow automation solution.
-
-### Core Components
-
-1. **Dashboard Interface** - React-based UI for project management
-2. **Project Pinning System** - GitHub repository integration with persistent storage
-3. **Environment Management** - Real-time configuration editing
-4. **Service Validation** - API connectivity testing and monitoring
-5. **Agent Integration** - Codegen API for AI-powered development tasks
+CodegenCICD Dashboard is a modern web application that streamlines the development workflow by integrating GitHub projects with AI-powered code generation, automated validation, and comprehensive testing. The system provides a unified interface for managing projects, running AI agents, and validating changes through a sophisticated pipeline.
 
 ## 🏗️ Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    CodegenCICD Dashboard                    │
-├─────────────────────────────────────────────────────────────┤
-│  Frontend (React + TypeScript + Material-UI)               │
-│  ├── Project Cards (Pinned GitHub Repositories)            │
-│  ├── Environment Variable Editor                           │
-│  ├── Service Status Monitoring                             │
-│  └── Agent Run Interface                                   │
-├─────────────────────────────────────────────────────────────┤
-│  Backend (FastAPI + Python)                                │
-│  ├── Service Validation APIs                               │
-│  ├── Environment Management                                │
-│  ├── GitHub Integration                                     │
-│  └── Codegen Agent Coordination                            │
-├─────────────────────────────────────────────────────────────┤
-│  External Integrations                                      │
-│  ├── Codegen SDK (AI Agent Coordination)                   │
-│  ├── Graph-Sitter (Static Analysis & Code Quality)        │
-│  ├── Grainchain (Sandboxing & Snapshot Creation)          │
-│  └── Web-Eval-Agent (UI Testing & Browser Automation)     │
-└─────────────────────────────────────────────────────────────┘
-```
+### Core Components
 
-## ✨ Features
+1. **Frontend Dashboard** - React-based UI with Material-UI components
+2. **Backend API** - FastAPI-based REST API with async support
+3. **Database** - SQLAlchemy with PostgreSQL for persistent storage
+4. **Webhook System** - Cloudflare Workers for GitHub webhook handling
+5. **Validation Pipeline** - Multi-service validation with automated testing
 
-### 🎨 User Interface
-- **Modern Dashboard**: Clean, responsive Material-UI design
-- **Dark Theme**: Professional dark theme with intuitive navigation
-- **Project Pinning**: Pin GitHub repositories as project cards
-- **Real-time Updates**: Live status monitoring and notifications
+### Service Integration Stack
 
-### 🔧 Project Management
-- **GitHub Integration**: Seamless repository browsing and selection
-- **Project Cards**: Visual representation of pinned repositories
-- **Persistent Storage**: Settings maintained across sessions
-- **Repository Details**: Stars, forks, language, and description display
+#### 1. Codegen SDK - Agent Coordination & Code Generation
+- **Purpose**: Core agentic prompt-based NLP requests for code generation
+- **API**: https://docs.codegen.com/api-reference/agents/create-agent-run
+- **Environment Variables**:
+  ```bash
+  CODEGEN_ORG_ID=your-org-id
+  CODEGEN_API_TOKEN=your-api-token
+  ```
 
-### ⚙️ Environment Configuration
-- **Inline Editing**: Click-to-edit environment variables
-- **API Integration**: Real-time updates via backend API
-- **Validation**: Input validation and error handling
-- **Categorized Variables**: Organized by service (Codegen, GitHub, Gemini, Cloudflare)
+#### 2. Graph-Sitter - Static Analysis & Code Quality
+- **Purpose**: Static analysis and code quality metrics
+- **Repository**: https://github.com/zeeeepa/graph-sitter
+- **Features**: AST parsing, complexity analysis, security scanning
 
-### 🔍 Service Validation
-- **API Connectivity**: Test connections to external services
-- **Real-time Monitoring**: Automatic health checks and status updates
-- **Response Time Tracking**: Performance monitoring for all services
-- **Error Reporting**: Detailed error messages and troubleshooting
+#### 3. Grainchain - Sandboxing & Snapshot Management
+- **Purpose**: Sandboxing, snapshot creation, and PR validation deployments
+- **Repository**: https://github.com/zeeeepa/grainchain
+- **Features**: Container management, environment isolation, deployment testing
 
-### 🤖 AI Agent Integration
-- **Codegen API**: Direct integration with Codegen Agent API
-- **Natural Language Processing**: Send prompts and receive AI-generated responses
-- **Project Context**: Automatic project context inclusion in requests
-- **Response Handling**: Support for regular, plan, and PR response types
+#### 4. Web-Eval-Agent - UI Testing & Browser Automation
+- **Purpose**: UI testing and browser automation for validation
+- **Repository**: https://github.com/zeeeepa/web-eval-agent
+- **Environment Variables**:
+  ```bash
+  GEMINI_API_KEY=your-gemini-api-key
+  ```
 
-## 🚀 Installation
+### External Services
+
+#### 1. GitHub Integration
+- **Purpose**: Repository management, webhook handling, PR operations
+- **Environment Variables**:
+  ```bash
+  GITHUB_TOKEN=your-github-token
+  ```
+
+#### 2. Cloudflare Workers
+- **Purpose**: Online accessibility and webhook gateway
+- **Environment Variables**:
+  ```bash
+  CLOUDFLARE_API_KEY=your-cloudflare-api-key
+  CLOUDFLARE_ACCOUNT_ID=your-account-id
+  CLOUDFLARE_WORKER_NAME=webhook-gateway
+  CLOUDFLARE_WORKER_URL=your-worker-url
+  ```
+
+## 🎯 Key Features
+
+### Project Management
+- **GitHub Project Selector**: Dropdown interface for selecting and pinning GitHub repositories
+- **Project Cards**: Visual representation of pinned projects with status indicators
+- **Persistent Storage**: All project configurations survive application restarts
+- **Webhook Integration**: Automatic webhook setup for real-time PR notifications
+
+### Agent Run System
+- **Target Text Input**: Natural language interface for describing tasks
+- **Planning Statements**: Configurable pre-prompts for consistent agent behavior
+- **Response Types**: Support for regular, plan, and PR response types
+- **Continue Functionality**: Ability to continue conversations with agents
+- **Auto-Confirm Plans**: Optional automatic plan confirmation
+
+### Project Configuration
+- **Repository Rules**: Custom rules and guidelines for specific repositories
+- **Setup Commands**: Configurable deployment and setup command sequences
+- **Secrets Management**: Secure environment variable storage and management
+- **Branch Selection**: Support for different branches in setup commands
+
+### Validation Pipeline
+1. **Snapshot Creation**: Grainchain-based environment snapshots
+2. **Codebase Cloning**: Automatic PR branch cloning
+3. **Deployment Testing**: Execution of setup commands with validation
+4. **UI Testing**: Web-Eval-Agent comprehensive testing
+5. **Error Recovery**: Automatic error detection and fix attempts
+6. **Auto-Merge**: Optional automatic merging of validated PRs
+
+### Real-time Features
+- **WebSocket Notifications**: Live updates for agent runs and validations
+- **Progress Tracking**: Real-time progress indicators for long-running operations
+- **Status Indicators**: Visual feedback for all system components
+
+## 🛠️ Installation & Setup
 
 ### Prerequisites
-- **Node.js** (v16 or higher)
-- **Python** (v3.8 or higher)
-- **Git**
+- Node.js 18+ and npm/yarn
+- Python 3.9+
+- PostgreSQL database
+- Docker (for service deployment)
+
+### Environment Configuration
+
+Create a `.env` file in the project root:
+
+```bash
+# Core Application
+NODE_ENV=development
+BACKEND_HOST=localhost
+FRONTEND_HOST=localhost
+
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/codegencd
+
+# Codegen API
+CODEGEN_ORG_ID=your-org-id
+CODEGEN_API_TOKEN=your-api-token
+
+# GitHub Integration
+GITHUB_TOKEN=your-github-token
+
+# Cloudflare Workers
+CLOUDFLARE_API_KEY=your-cloudflare-api-key
+CLOUDFLARE_ACCOUNT_ID=your-account-id
+CLOUDFLARE_WORKER_NAME=webhook-gateway
+CLOUDFLARE_WORKER_URL=your-worker-url
+
+# AI Services
+GEMINI_API_KEY=your-gemini-api-key
+
+# Service URLs (when deployed)
+GRAINCHAIN_URL=http://localhost:8001
+GRAPH_SITTER_URL=http://localhost:8002
+WEB_EVAL_AGENT_URL=http://localhost:8003
+```
 
 ### Backend Setup
+
 ```bash
-# Clone the repository
-git clone https://github.com/Zeeeepa/CodegenCICD.git
-cd CodegenCICD
+# Navigate to backend directory
+cd backend
 
 # Install Python dependencies
-cd backend
 pip install -r requirements.txt
 
-# Set up environment variables (see Environment Variables section)
-cp .env.example .env
-# Edit .env with your API keys and configuration
+# Run database migrations
+alembic upgrade head
+
+# Start the backend server
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### Frontend Setup
+
 ```bash
-# Install Node.js dependencies
+# Navigate to frontend directory
 cd frontend
+
+# Install dependencies
 npm install
 
-# Build the application
-npm run build
-```
-
-### Running the Application
-```bash
-# Start the backend server
-cd backend
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-
-# Start the frontend development server (in a new terminal)
-cd frontend
+# Start the development server
 npm start
 ```
 
-The application will be available at:
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:8000
-- **API Documentation**: http://localhost:8000/docs
+### Service Deployment
 
-## 📖 Usage
+Deploy the required services using Docker:
+
+```bash
+# Deploy Grainchain
+docker run -d --name grainchain -p 8001:8000 zeeeepa/grainchain
+
+# Deploy Graph-Sitter
+docker run -d --name graph-sitter -p 8002:8000 zeeeepa/graph-sitter
+
+# Deploy Web-Eval-Agent
+docker run -d --name web-eval-agent -p 8003:8000 \
+  -e GEMINI_API_KEY=your-gemini-api-key \
+  zeeeepa/web-eval-agent
+```
+
+## 📖 Usage Guide
 
 ### 1. Project Setup
-1. **Pin Repositories**: Use the dropdown selector to pin GitHub repositories to your dashboard
-2. **Configure Environment**: Edit environment variables through the Environment tab
-3. **Validate Services**: Check API connectivity in the Validation tab
 
-### 2. Project Management
-- **View Project Cards**: Pinned repositories appear as cards with repository information
-- **Unpin Projects**: Remove projects using the unpin button on each card
-- **Repository Details**: View stars, forks, language, and description
+1. **Access Dashboard**: Navigate to `http://localhost:3000`
+2. **Select Project**: Click "Select Project" in the header dropdown
+3. **Choose Repository**: Select a GitHub repository from the list
+4. **Automatic Configuration**: Webhook URL is automatically set to Cloudflare worker
 
-### 3. Environment Configuration
-- **Edit Variables**: Click the edit icon next to any environment variable
-- **Save Changes**: Use save/cancel buttons to confirm or discard changes
-- **Real-time Updates**: Changes are immediately reflected in the system
+### 2. Project Configuration
 
-### 4. Service Monitoring
-- **API Status**: Monitor connectivity to Codegen, GitHub, Gemini, and Cloudflare APIs
-- **Response Times**: Track API performance and response times
-- **Error Handling**: View detailed error messages for failed connections
+1. **Open Settings**: Click the gear icon on any project card
+2. **Configure Tabs**:
+   - **General**: Auto-confirm plans, auto-merge settings
+   - **Planning Statement**: Default prompt text for all agent runs
+   - **Repository Rules**: Custom rules for the specific repository
+   - **Setup Commands**: Deployment and setup command sequences
+   - **Secrets**: Environment variables and sensitive configuration
 
-## 🔌 API Reference
+### 3. Running Agents
 
-### Service Validation Endpoints
+1. **Start Agent Run**: Click the "Run" button on a project card
+2. **Enter Target**: Describe what you want the agent to accomplish
+3. **Monitor Progress**: Watch real-time progress and logs
+4. **Handle Responses**:
+   - **Regular**: Use "Continue" to add more instructions
+   - **Plan**: Choose "Confirm" or "Modify" the proposed plan
+   - **PR**: View the created PR and trigger validation
 
-#### GET `/api/validation/environment`
-Retrieve all environment variables organized by category.
+### 4. Validation Flow
 
-**Response:**
-```json
+When a PR is created:
+
+1. **Automatic Trigger**: Validation starts automatically
+2. **Snapshot Creation**: Grainchain creates isolated environment
+3. **Codebase Cloning**: PR branch is cloned to sandbox
+4. **Deployment Testing**: Setup commands are executed
+5. **UI Testing**: Web-Eval-Agent runs comprehensive tests
+6. **Error Handling**: Automatic error detection and fix attempts
+7. **Results**: Merge option or GitHub link provided
+
+### 5. Webhook Notifications
+
+- **Real-time Updates**: Receive notifications for PR events
+- **Status Changes**: Visual indicators update automatically
+- **Progress Tracking**: Monitor long-running operations
+
+## 🔧 API Reference
+
+### Project Management
+
+```bash
+# List GitHub repositories
+GET /api/projects/github-repos
+
+# Create/pin project
+POST /api/projects
 {
-  "environment_variables": {
-    "codegen": {
-      "CODEGEN_ORG_ID": "323",
-      "CODEGEN_API_TOKEN": "sk-..."
-    },
-    "github": {
-      "GITHUB_TOKEN": "github_pat_..."
-    }
-  },
-  "timestamp": 1753768644.4178705,
-  "total_variables": 12
+  "github_id": 123456,
+  "name": "my-project",
+  "full_name": "owner/repo",
+  "github_owner": "owner",
+  "github_repo": "repo",
+  "github_url": "https://github.com/owner/repo"
 }
-```
 
-#### PUT `/api/validation/environment/{variable_name}`
-Update a specific environment variable.
-
-**Request Body:**
-```json
+# Update project settings
+PUT /api/projects/{project_id}
 {
-  "value": "new_value"
+  "auto_confirm_plans": true,
+  "planning_statement": "Custom planning text",
+  "repository_rules": "Follow coding standards"
 }
+
+# Delete/unpin project
+DELETE /api/projects/{project_id}
 ```
 
-#### GET `/api/validation/codegen`
-Validate Codegen API connectivity and authentication.
+### Agent Runs
 
-#### GET `/api/validation/github-repositories`
-Fetch GitHub repositories from the authenticated user's account.
-
-#### GET `/health`
-Basic health check endpoint.
-
-**Response:**
-```json
+```bash
+# Start agent run
+POST /api/projects/{project_id}/agent-runs
 {
-  "status": "healthy",
-  "service": "codegencd-api"
+  "target_text": "Create a login form with validation"
 }
+
+# Continue agent run
+POST /api/projects/{project_id}/agent-runs/{run_id}/continue
+{
+  "message": "Add password strength validation"
+}
+
+# Get agent run status
+GET /api/projects/{project_id}/agent-runs/{run_id}
 ```
 
-## 📁 Project Structure
+### Secrets Management
 
-```
-CodegenCICD/
-├── backend/                    # FastAPI backend application
-│   ├── main.py                # Application entry point
-│   ├── routers/               # API route handlers
-│   │   └── service_validation.py
-│   └── requirements.txt       # Python dependencies
-├── frontend/                  # React frontend application
-│   ├── public/               # Static assets
-│   ├── src/                  # Source code
-│   │   ├── components/       # React components
-│   │   │   ├── Dashboard.tsx # Main dashboard component
-│   │   │   ├── EnvironmentVariables.tsx
-│   │   │   ├── ServiceValidator.tsx
-│   │   │   └── config-tabs/  # Configuration tab components
-│   │   ├── hooks/           # Custom React hooks
-│   │   └── types/           # TypeScript type definitions
-│   ├── package.json         # Node.js dependencies
-│   └── tsconfig.json        # TypeScript configuration
-├── README.md                # This file
-└── .env.example            # Environment variables template
-```
-
-## 🔐 Environment Variables
-
-### Required Variables
-
-#### Codegen API Configuration
 ```bash
-CODEGEN_ORG_ID=323
-CODEGEN_API_TOKEN=sk-[REDACTED]
+# List project secrets
+GET /api/projects/{project_id}/secrets
+
+# Create/update secret
+POST /api/projects/{project_id}/secrets
+{
+  "key": "API_KEY",
+  "value": "secret-value"
+}
+
+# Delete secret
+DELETE /api/projects/{project_id}/secrets/{secret_id}
 ```
 
-#### GitHub Integration
+## 🧪 Testing
+
+### Automated Testing with Web-Eval-Agent
+
+The system automatically tests all new components using Web-Eval-Agent:
+
 ```bash
-GITHUB_TOKEN=github_pat_[REDACTED]
+# Manual testing trigger
+curl -X POST http://localhost:8003/api/test/comprehensive \
+  -H "Content-Type: application/json" \
+  -d '{
+    "base_url": "http://localhost:3000",
+    "gemini_api_key": "your-gemini-api-key"
+  }'
 ```
 
-#### Gemini API (for AI validation)
+### Test Coverage
+
+- **Homepage Functionality**: Load times, element presence, error checking
+- **Navigation Testing**: Link functionality, routing, back button
+- **Form Validation**: Input validation, submission handling
+- **Responsive Design**: Mobile, tablet, desktop compatibility
+- **Accessibility**: WCAG compliance, keyboard navigation
+- **Performance**: Core Web Vitals, Lighthouse scores
+
+## 🔒 Security
+
+### Authentication & Authorization
+- GitHub token-based authentication
+- Webhook signature verification
+- Environment variable encryption
+- API rate limiting
+
+### Data Protection
+- Secrets are encrypted at rest
+- Sensitive data is masked in logs
+- HTTPS enforcement in production
+- CORS configuration for API access
+
+## 🚀 Deployment
+
+### Production Environment
+
 ```bash
-GEMINI_API_KEY=AIzaSy[REDACTED]
+# Build frontend
+cd frontend && npm run build
+
+# Deploy backend
+cd backend && gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker
+
+# Deploy services
+docker-compose up -d
 ```
 
-#### Cloudflare Configuration
-```bash
-CLOUDFLARE_API_KEY=[REDACTED]
-CLOUDFLARE_ACCOUNT_ID=[REDACTED]
-CLOUDFLARE_WORKER_NAME=webhook-gateway
-CLOUDFLARE_WORKER_URL=https://webhook-gateway.pixeliumperfecto.workers.dev
+### Cloudflare Worker Deployment
+
+The webhook gateway is automatically deployed to Cloudflare Workers:
+
+```javascript
+// Automatic deployment via API
+POST /api/webhooks/cloudflare/deploy
 ```
 
-#### Service Configuration
-```bash
-BACKEND_PORT=8000
-FRONTEND_PORT=3001
-BACKEND_HOST=localhost
-FRONTEND_HOST=localhost
-```
+## 📊 Monitoring & Observability
 
-## 🛠️ External Project Dependencies
+### Health Checks
+- Service health monitoring
+- Database connection status
+- External service availability
+- Real-time status indicators
 
-### [Graph-Sitter](https://github.com/Zeeeepa/graph-sitter)
-**Purpose**: Static analysis & code quality metrics
-- **Function**: Analyzes code structure and quality
-- **Integration**: Used for code validation in PR workflows
-- **Features**: AST parsing, complexity analysis, code metrics
-
-### [Grainchain](https://github.com/Zeeeepa/grainchain)
-**Purpose**: Sandboxing + snapshot creation + PR validation deployments
-- **Function**: Creates isolated environments for testing
-- **Integration**: Handles deployment validation and testing
-- **Features**: Container management, snapshot creation, environment isolation
-
-### [Web-Eval-Agent](https://github.com/Zeeeepa/web-eval-agent)
-**Purpose**: UI testing & browser automation
-- **Function**: Automated testing of web interfaces
-- **Integration**: Validates UI functionality after deployments
-- **Features**: Browser automation, UI testing, flow validation
-
-### [Codegen SDK](https://docs.codegen.com/api-reference)
-**Purpose**: Agent coordination & code generation
-- **Function**: Core AI-powered development assistance
-- **Integration**: Natural language to code generation
-- **Features**: Agent runs, plan generation, PR creation
-
-## 🔄 Workflow Integration
-
-### Validation Flow Process
-1. **Project Selection**: User pins GitHub repository to dashboard
-2. **Agent Run**: User initiates AI agent with target text/goal
-3. **Code Generation**: Codegen API processes request and generates code
-4. **PR Creation**: System creates pull request with generated changes
-5. **Validation Pipeline**:
-   - **Snapshot Creation**: Grainchain creates isolated environment
-   - **Code Analysis**: Graph-Sitter analyzes code quality
-   - **Deployment**: Automated deployment to test environment
-   - **UI Testing**: Web-Eval-Agent validates functionality
-6. **Feedback Loop**: Results fed back to agent for improvements
-7. **Auto-merge**: Optional automatic merging of validated PRs
-
-## 🚀 Future Enhancements
-
-### Planned Features
-- **Agent Run Interface**: Text dialog for AI agent interactions
-- **Planning Statement Configuration**: Customizable pre-prompts
-- **Auto-confirm Plans**: Checkbox for automatic plan confirmation
-- **Repository Rules**: Custom rules per repository
-- **Setup Commands**: Configurable sandbox setup commands
-- **Secrets Management**: Secure environment variable storage
-- **Webhook Integration**: Real-time PR notifications
-- **Deployment Monitoring**: Live deployment status tracking
-
-### Advanced Capabilities
-- **Multi-agent Coordination**: Orchestrate multiple AI agents
-- **Custom Validation Rules**: User-defined validation criteria
-- **Integration Templates**: Pre-configured workflow templates
-- **Performance Analytics**: Detailed metrics and reporting
-- **Team Collaboration**: Multi-user project management
+### Logging
+- Structured logging with context
+- Error tracking and alerting
+- Performance metrics
+- Audit trails for all operations
 
 ## 🤝 Contributing
 
-1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
-3. **Commit your changes**: `git commit -m 'Add amazing feature'`
-4. **Push to the branch**: `git push origin feature/amazing-feature`
-5. **Open a Pull Request**
-
-### Development Guidelines
-- Follow TypeScript best practices for frontend code
-- Use Python type hints and docstrings for backend code
-- Write tests for new functionality
-- Update documentation for API changes
-- Follow the existing code style and conventions
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Submit a pull request
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🙏 Acknowledgments
+## 🆘 Support
 
-- **Codegen Team** for the powerful AI agent API
-- **Material-UI** for the excellent React component library
-- **FastAPI** for the high-performance Python web framework
-- **React** for the robust frontend framework
+For support and questions:
+- Create an issue in the GitHub repository
+- Check the documentation for common solutions
+- Review the API reference for integration details
+
+## 🔄 Changelog
+
+### v1.0.0
+- Initial release with full dashboard functionality
+- GitHub integration and webhook support
+- Agent run system with multiple response types
+- Comprehensive validation pipeline
+- Real-time notifications and progress tracking
+- Multi-service integration (Codegen, Graph-Sitter, Grainchain, Web-Eval-Agent)
 
 ---
 
-**Built with ❤️ by the CodegenCICD Team**
-
-For support or questions, please open an issue on GitHub or contact the development team.
+**Built with ❤️ for developers who want AI-powered CI/CD workflows**

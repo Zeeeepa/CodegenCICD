@@ -5,46 +5,33 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  Box,
-  Typography,
   Tabs,
   Tab,
+  Box,
   TextField,
+  Typography,
+  Switch,
+  FormControlLabel,
+  Paper,
+  Stack,
+  IconButton,
   Chip,
   Alert,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  IconButton,
-  Divider,
-  FormControlLabel,
-  Switch,
   Select,
   MenuItem,
   FormControl,
   InputLabel,
-  Paper,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
+  CircularProgress,
+  Divider,
 } from '@mui/material';
 import {
-  Settings as SettingsIcon,
-  Rule as RuleIcon,
-  Build as BuildIcon,
-  Security as SecurityIcon,
-  Psychology as PsychologyIcon,
   Add as AddIcon,
   Delete as DeleteIcon,
-  Edit as EditIcon,
-  Save as SaveIcon,
   PlayArrow as PlayIcon,
-  ExpandMore as ExpandMoreIcon,
+  Save as SaveIcon,
   Visibility as VisibilityIcon,
   VisibilityOff as VisibilityOffIcon,
 } from '@mui/icons-material';
-
 import { ProjectData } from './EnhancedProjectCard';
 
 interface ProjectSettingsDialogProps {
@@ -52,6 +39,13 @@ interface ProjectSettingsDialogProps {
   onClose: () => void;
   project: ProjectData;
   onUpdate: (updates: Partial<ProjectData>) => void;
+  onRunSetupCommands: () => void;
+}
+
+interface ProjectSecret {
+  id?: number;
+  key: string;
+  value: string;
 }
 
 interface TabPanelProps {
@@ -60,141 +54,158 @@ interface TabPanelProps {
   value: number;
 }
 
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
+const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => (
+  <div hidden={value !== index} style={{ paddingTop: 16 }}>
+    {value === index && children}
+  </div>
+);
 
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`project-settings-tabpanel-${index}`}
-      aria-labelledby={`project-settings-tab-${index}`}
-      {...other}
-    >
-      {value === index && (
-        <Box sx={{ p: 3 }}>
-          {children}
-        </Box>
-      )}
-    </div>
-  );
-}
-
-export const ProjectSettingsDialog: React.FC<ProjectSettingsDialogProps> = ({
+const ProjectSettingsDialog: React.FC<ProjectSettingsDialogProps> = ({
   open,
   onClose,
   project,
   onUpdate,
+  onRunSetupCommands
 }) => {
   const [activeTab, setActiveTab] = useState(0);
-  const [repositoryRules, setRepositoryRules] = useState('');
-  const [setupCommands, setSetupCommands] = useState('');
-  const [planningStatement, setPlanningStatement] = useState('');
-  const [secrets, setSecrets] = useState<Array<{id: string, name: string, value: string, isNew?: boolean}>>([]);
-  const [selectedBranch, setSelectedBranch] = useState(project.github_branch);
-  const [setupCommandsStatus, setSetupCommandsStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
-  const [setupCommandsOutput, setSetupCommandsOutput] = useState('');
-  const [showSecretValues, setShowSecretValues] = useState<{[key: string]: boolean}>({});
+  const [loading, setLoading] = useState(false);
+  
+  // Form states
+  const [autoConfirmPlans, setAutoConfirmPlans] = useState(project.auto_confirm_plans || false);
+  const [autoMergeValidatedPR, setAutoMergeValidatedPR] = useState(project.auto_merge_validated_pr || false);
+  const [planningStatement, setPlanningStatement] = useState(project.planning_statement || '');
+  const [repositoryRules, setRepositoryRules] = useState(project.repository_rules || '');
+  const [setupCommands, setSetupCommands] = useState(project.setup_commands || '');
+  const [setupBranch, setSetupBranch] = useState(project.setup_branch || 'main');
+  const [secrets, setSecrets] = useState<ProjectSecret[]>([]);
+  const [secretsText, setSecretsText] = useState('');
+  const [showSecretValues, setShowSecretValues] = useState(false);
+  const [branches, setBranches] = useState<string[]>(['main', 'develop', 'staging']);
 
-  // Load project settings when dialog opens
+  // Load project secrets
   useEffect(() => {
     if (open) {
-      loadProjectSettings();
+      loadSecrets();
+      loadBranches();
     }
   }, [open, project.id]);
 
-  const loadProjectSettings = async () => {
+  const loadSecrets = async () => {
     try {
-      // In a real implementation, these would be API calls
-      setRepositoryRules(project.has_repository_rules ? 'Follow TypeScript best practices\nUse proper error handling\nWrite comprehensive tests' : '');
-      setSetupCommands(project.has_setup_commands ? 'cd backend\npython -m pip install -r requirements.txt\ncd ../frontend\nnpm install\nnpm run dev' : '');
-      setPlanningStatement(project.has_planning_statement ? `<Project='${project.name}'>\n\nYou are working on the ${project.name} project.\nPlease follow the repository rules and coding standards.` : '');
-      setSecrets(project.has_secrets ? [
-        { id: '1', name: 'DATABASE_URL', value: 'postgresql://...' },
-        { id: '2', name: 'API_KEY', value: 'sk-...' }
-      ] : []);
+      const response = await fetch(`/api/projects/${project.id}/secrets`);
+      if (response.ok) {
+        const data = await response.json();
+        setSecrets(data.secrets || []);
+        
+        // Convert to text format
+        const secretsTextFormat = data.secrets
+          .map((s: ProjectSecret) => `${s.key}=${s.value}`)
+          .join('\n');
+        setSecretsText(secretsTextFormat);
+      }
     } catch (error) {
-      console.error('Failed to load project settings:', error);
+      console.error('Failed to load secrets:', error);
+    }
+  };
+
+  const loadBranches = async () => {
+    try {
+      // TODO: Implement GitHub API call to get actual branches
+      // For now, use default branches
+      setBranches(['main', 'develop', 'staging', 'production']);
+    } catch (error) {
+      console.error('Failed to load branches:', error);
     }
   };
 
   const handleSave = async () => {
     try {
-      // In a real implementation, this would make API calls to save each setting
+      setLoading(true);
+      
       const updates = {
-        has_repository_rules: repositoryRules.trim().length > 0,
-        has_setup_commands: setupCommands.trim().length > 0,
-        has_planning_statement: planningStatement.trim().length > 0,
-        has_secrets: secrets.length > 0,
-        github_branch: selectedBranch,
+        auto_confirm_plans: autoConfirmPlans,
+        auto_merge_validated_pr: autoMergeValidatedPR,
+        planning_statement: planningStatement,
+        repository_rules: repositoryRules,
+        setup_commands: setupCommands,
+        setup_branch: setupBranch,
       };
       
-      onUpdate(updates);
+      await onUpdate(updates);
+      
+      // Save secrets if they were modified
+      if (secretsText !== secrets.map(s => `${s.key}=${s.value}`).join('\n')) {
+        await saveSecrets();
+      }
+      
       onClose();
     } catch (error) {
-      console.error('Failed to save project settings:', error);
+      console.error('Failed to save settings:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleRunSetupCommands = async () => {
-    setSetupCommandsStatus('running');
-    setSetupCommandsOutput('');
-    
+  const saveSecrets = async () => {
     try {
-      // Simulate running setup commands
-      setSetupCommandsOutput('Running setup commands...\n');
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setSetupCommandsOutput(prev => prev + 'Installing dependencies...\n');
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      setSetupCommandsOutput(prev => prev + 'Setup completed successfully!\n');
-      setSetupCommandsStatus('success');
+      // Parse secrets from text
+      const parsedSecrets = secretsText
+        .split('\n')
+        .filter(line => line.trim() && line.includes('='))
+        .map(line => {
+          const [key, ...valueParts] = line.split('=');
+          return {
+            key: key.trim(),
+            value: valueParts.join('=').trim()
+          };
+        });
+
+      // Save each secret
+      for (const secret of parsedSecrets) {
+        await fetch(`/api/projects/${project.id}/secrets`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(secret)
+        });
+      }
+      
+      // Reload secrets
+      await loadSecrets();
     } catch (error) {
-      setSetupCommandsOutput(prev => prev + `Error: ${error}\n`);
-      setSetupCommandsStatus('error');
+      console.error('Failed to save secrets:', error);
     }
   };
 
-  const handleAddSecret = () => {
-    const newSecret = {
-      id: Date.now().toString(),
-      name: '',
-      value: '',
-      isNew: true
-    };
-    setSecrets([...secrets, newSecret]);
+  const addSecret = () => {
+    setSecrets(prev => [...prev, { key: '', value: '' }]);
   };
 
-  const handleUpdateSecret = (id: string, field: 'name' | 'value', value: string) => {
-    setSecrets(secrets.map(secret => 
-      secret.id === id ? { ...secret, [field]: value } : secret
+  const updateSecret = (index: number, field: 'key' | 'value', value: string) => {
+    setSecrets(prev => prev.map((secret, i) => 
+      i === index ? { ...secret, [field]: value } : secret
     ));
   };
 
-  const handleDeleteSecret = (id: string) => {
-    setSecrets(secrets.filter(secret => secret.id !== id));
+  const removeSecret = async (index: number) => {
+    const secret = secrets[index];
+    if (secret.id) {
+      try {
+        await fetch(`/api/projects/${project.id}/secrets/${secret.id}`, {
+          method: 'DELETE'
+        });
+      } catch (error) {
+        console.error('Failed to delete secret:', error);
+      }
+    }
+    setSecrets(prev => prev.filter((_, i) => i !== index));
   };
 
-  const toggleSecretVisibility = (id: string) => {
-    setShowSecretValues(prev => ({
-      ...prev,
-      [id]: !prev[id]
-    }));
-  };
-
-  const handlePasteSecrets = () => {
-    const text = prompt('Paste your environment variables (KEY=value format):');
-    if (text) {
-      const lines = text.split('\n').filter(line => line.includes('='));
-      const newSecrets = lines.map((line, index) => {
-        const [name, ...valueParts] = line.split('=');
-        return {
-          id: (Date.now() + index).toString(),
-          name: name.trim(),
-          value: valueParts.join('=').trim(),
-          isNew: true
-        };
-      });
-      setSecrets([...secrets, ...newSecrets]);
+  const runSetupCommands = async () => {
+    try {
+      setLoading(true);
+      await onRunSetupCommands();
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -202,321 +213,269 @@ export const ProjectSettingsDialog: React.FC<ProjectSettingsDialogProps> = ({
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="lg"
+      maxWidth="md"
       fullWidth
       PaperProps={{
-        sx: { height: '80vh' }
+        sx: { minHeight: '600px' }
       }}
     >
       <DialogTitle>
-        <Box display="flex" alignItems="center" gap={1}>
-          <SettingsIcon color="primary" />
-          <Typography variant="h6">
-            Project Settings
-          </Typography>
-          <Chip 
-            label={project.name} 
-            size="small" 
-            color="primary" 
-            variant="outlined" 
-          />
-        </Box>
+        Project Settings - {project.name}
       </DialogTitle>
 
-      <DialogContent sx={{ p: 0 }}>
+      <DialogContent>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tabs value={activeTab} onChange={(_, newValue) => setActiveTab(newValue)}>
-            <Tab 
-              icon={<RuleIcon />} 
-              label="Repository Rules" 
-              iconPosition="start"
-            />
-            <Tab 
-              icon={<BuildIcon />} 
-              label="Setup Commands" 
-              iconPosition="start"
-            />
-            <Tab 
-              icon={<SecurityIcon />} 
-              label="Secrets" 
-              iconPosition="start"
-            />
-            <Tab 
-              icon={<PsychologyIcon />} 
-              label="Planning Statement" 
-              iconPosition="start"
-            />
+            <Tab label="General" />
+            <Tab label="Planning Statement" />
+            <Tab label="Repository Rules" />
+            <Tab label="Setup Commands" />
+            <Tab label="Secrets" />
           </Tabs>
         </Box>
 
-        {/* Repository Rules Tab */}
+        {/* General Tab */}
         <TabPanel value={activeTab} index={0}>
-          <Typography variant="h6" gutterBottom>
-            Repository Rules
-          </Typography>
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            Specify any additional rules you want the agent to follow for this repository.
-          </Typography>
-          
-          <TextField
-            fullWidth
-            multiline
-            rows={12}
-            value={repositoryRules}
-            onChange={(e) => setRepositoryRules(e.target.value)}
-            placeholder="Enter repository-specific rules and guidelines:
-
-• Follow TypeScript best practices
-• Use proper error handling with try-catch blocks
-• Write comprehensive unit tests for all functions
-• Use semantic commit messages
-• Follow the existing code style and patterns
-• Update documentation when making changes
-• Ensure all PRs pass CI/CD checks before merging"
-            variant="outlined"
-            sx={{ mb: 2 }}
-          />
-
-          <Alert severity="info">
-            These rules will be included in the agent's context when working on this project.
-          </Alert>
-        </TabPanel>
-
-        {/* Setup Commands Tab */}
-        <TabPanel value={activeTab} index={1}>
-          <Typography variant="h6" gutterBottom>
-            Setup Commands
-          </Typography>
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            Specify the commands to run when setting up the sandbox environment.
-          </Typography>
-
-          <Box display="flex" gap={2} mb={2} alignItems="center">
-            <FormControl size="small" sx={{ minWidth: 120 }}>
-              <InputLabel>Branch</InputLabel>
-              <Select
-                value={selectedBranch}
-                onChange={(e) => setSelectedBranch(e.target.value)}
-                label="Branch"
-              >
-                <MenuItem value="main">main</MenuItem>
-                <MenuItem value="develop">develop</MenuItem>
-                <MenuItem value="staging">staging</MenuItem>
-              </Select>
-            </FormControl>
+          <Stack spacing={3}>
+            <Typography variant="h6">General Settings</Typography>
             
-            <Button
-              variant="outlined"
-              startIcon={<PlayIcon />}
-              onClick={handleRunSetupCommands}
-              disabled={setupCommandsStatus === 'running' || !setupCommands.trim()}
-            >
-              {setupCommandsStatus === 'running' ? 'Running...' : 'Test Run'}
-            </Button>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={autoConfirmPlans}
+                  onChange={(e) => setAutoConfirmPlans(e.target.checked)}
+                />
+              }
+              label="Auto Confirm Proposed Plans"
+            />
             
-            <Button
-              variant="outlined"
-              startIcon={<SaveIcon />}
-              onClick={handleSave}
-            >
-              Save
-            </Button>
-          </Box>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={autoMergeValidatedPR}
+                  onChange={(e) => setAutoMergeValidatedPR(e.target.checked)}
+                />
+              }
+              label="Auto-merge Validated PRs"
+            />
 
-          <TextField
-            fullWidth
-            multiline
-            rows={8}
-            value={setupCommands}
-            onChange={(e) => setSetupCommands(e.target.value)}
-            placeholder="Enter setup commands (one per line):
-
-cd backend
-python -m pip install -r requirements.txt
-python manage.py migrate
-
-cd ../frontend
-npm install
-npm run build"
-            variant="outlined"
-            sx={{ mb: 2 }}
-          />
-
-          {setupCommandsOutput && (
-            <Paper sx={{ p: 2, bgcolor: 'grey.900', color: 'white', fontFamily: 'monospace' }}>
-              <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap' }}>
-                {setupCommandsOutput}
-              </Typography>
-            </Paper>
-          )}
-
-          {setupCommandsStatus === 'success' && (
-            <Alert severity="success" sx={{ mt: 2 }}>
-              Setup commands executed successfully!
-            </Alert>
-          )}
-
-          {setupCommandsStatus === 'error' && (
-            <Alert severity="error" sx={{ mt: 2 }}>
-              Setup commands failed. Check the output above for details.
-            </Alert>
-          )}
-        </TabPanel>
-
-        {/* Secrets Tab */}
-        <TabPanel value={activeTab} index={2}>
-          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-            <Box>
-              <Typography variant="h6">
-                Environment Variables
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Manage sensitive configuration values for this project.
-              </Typography>
-            </Box>
-            <Box display="flex" gap={1}>
-              <Button
-                variant="outlined"
-                startIcon={<AddIcon />}
-                onClick={handleAddSecret}
-                size="small"
-              >
-                Add Secret
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={handlePasteSecrets}
-                size="small"
-              >
-                Paste Text
-              </Button>
-            </Box>
-          </Box>
-
-          <List>
-            {secrets.map((secret, index) => (
-              <React.Fragment key={secret.id}>
-                <ListItem sx={{ px: 0 }}>
-                  <Box display="flex" width="100%" gap={2} alignItems="center">
-                    <TextField
-                      size="small"
-                      label="Variable Name"
-                      value={secret.name}
-                      onChange={(e) => handleUpdateSecret(secret.id, 'name', e.target.value)}
-                      placeholder="DATABASE_URL"
-                      sx={{ flex: 1 }}
-                    />
-                    <TextField
-                      size="small"
-                      label="Value"
-                      type={showSecretValues[secret.id] ? 'text' : 'password'}
-                      value={secret.value}
-                      onChange={(e) => handleUpdateSecret(secret.id, 'value', e.target.value)}
-                      placeholder="Enter secret value"
-                      sx={{ flex: 2 }}
-                      InputProps={{
-                        endAdornment: (
-                          <IconButton
-                            size="small"
-                            onClick={() => toggleSecretVisibility(secret.id)}
-                          >
-                            {showSecretValues[secret.id] ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                          </IconButton>
-                        )
-                      }}
-                    />
-                    <IconButton
-                      color="error"
-                      onClick={() => handleDeleteSecret(secret.id)}
-                      size="small"
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </Box>
-                </ListItem>
-                {index < secrets.length - 1 && <Divider />}
-              </React.Fragment>
-            ))}
-          </List>
-
-          {secrets.length === 0 && (
             <Alert severity="info">
-              No environment variables configured. Click "Add Secret" to add your first variable.
+              <Typography variant="body2">
+                When auto-confirm is enabled, the agent will automatically proceed with proposed plans without waiting for user confirmation.
+              </Typography>
             </Alert>
-          )}
-
-          <Alert severity="warning" sx={{ mt: 2 }}>
-            <Typography variant="body2">
-              <strong>Security Note:</strong> All secrets are encrypted before storage and are only accessible during agent runs.
-            </Typography>
-          </Alert>
+          </Stack>
         </TabPanel>
 
         {/* Planning Statement Tab */}
-        <TabPanel value={activeTab} index={3}>
-          <Typography variant="h6" gutterBottom>
-            Planning Statement
-          </Typography>
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            This text will be prepended to every agent run request as context.
-          </Typography>
-
-          <TextField
-            fullWidth
-            multiline
-            rows={12}
-            value={planningStatement}
-            onChange={(e) => setPlanningStatement(e.target.value)}
-            placeholder={`Enter a planning statement for this project:
-
-<Project='${project.name}'>
-
-You are working on the ${project.name} project (${project.github_owner}/${project.github_repo}).
-
-Project Context:
-- This is a [describe your project type]
-- Built with [technology stack]
-- Follows [coding standards/patterns]
-
-Guidelines:
-- Always follow the repository rules
-- Test your changes thoroughly
-- Update documentation when needed
-- Use semantic commit messages`}
-            variant="outlined"
-            sx={{ mb: 2 }}
-          />
-
-          <Accordion>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="subtitle2">
-                Preview: How this will appear to the agent
-              </Typography>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-                  {planningStatement || 'No planning statement configured'}
-                  {planningStatement && '\n\nUser Request: [Your target text will appear here]'}
+        <TabPanel value={activeTab} index={1}>
+          <Stack spacing={2}>
+            <Typography variant="h6">Planning Statement</Typography>
+            <Typography variant="body2" color="text.secondary">
+              This text will be sent to the Codegen API along with every user request to provide context and guidance.
+            </Typography>
+            
+            <TextField
+              fullWidth
+              multiline
+              rows={8}
+              value={planningStatement}
+              onChange={(e) => setPlanningStatement(e.target.value)}
+              placeholder="Enter planning statement that will be prepended to all agent requests..."
+              variant="outlined"
+            />
+            
+            {planningStatement && (
+              <Alert severity="success">
+                <Typography variant="body2">
+                  Planning statement configured. This will be included with all agent runs.
                 </Typography>
-              </Paper>
-            </AccordionDetails>
-          </Accordion>
+              </Alert>
+            )}
+          </Stack>
+        </TabPanel>
+
+        {/* Repository Rules Tab */}
+        <TabPanel value={activeTab} index={2}>
+          <Stack spacing={2}>
+            <Typography variant="h6">Repository Rules</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Specify any additional rules you want the agent to follow for this repository.
+            </Typography>
+            
+            <TextField
+              fullWidth
+              multiline
+              rows={8}
+              value={repositoryRules}
+              onChange={(e) => setRepositoryRules(e.target.value)}
+              placeholder="Enter repository-specific rules and guidelines..."
+              variant="outlined"
+            />
+            
+            {repositoryRules && (
+              <Alert severity="warning">
+                <Typography variant="body2">
+                  Repository rules configured. The project card will show a visual indicator.
+                </Typography>
+              </Alert>
+            )}
+          </Stack>
+        </TabPanel>
+
+        {/* Setup Commands Tab */}
+        <TabPanel value={activeTab} index={3}>
+          <Stack spacing={2}>
+            <Typography variant="h6">Setup Commands</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Specify the commands to run when setting up the sandbox environment.
+            </Typography>
+            
+            <TextField
+              fullWidth
+              multiline
+              rows={8}
+              value={setupCommands}
+              onChange={(e) => setSetupCommands(e.target.value)}
+              placeholder={`cd backend\npython api.py\ncd ..\ncd frontend\nnpm install\nnpm run dev`}
+              variant="outlined"
+            />
+            
+            <FormControl fullWidth>
+              <InputLabel>Branch</InputLabel>
+              <Select
+                value={setupBranch}
+                onChange={(e) => setSetupBranch(e.target.value)}
+                label="Branch"
+              >
+                {branches.map((branch) => (
+                  <MenuItem key={branch} value={branch}>
+                    {branch}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            
+            <Stack direction="row" spacing={2}>
+              <Button
+                variant="contained"
+                startIcon={<PlayIcon />}
+                onClick={runSetupCommands}
+                disabled={!setupCommands || loading}
+              >
+                {loading ? <CircularProgress size={20} /> : 'Run'}
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<SaveIcon />}
+                onClick={handleSave}
+                disabled={loading}
+              >
+                Save
+              </Button>
+            </Stack>
+          </Stack>
+        </TabPanel>
+
+        {/* Secrets Tab */}
+        <TabPanel value={activeTab} index={4}>
+          <Stack spacing={2}>
+            <Typography variant="h6">Environment Variables / Secrets</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Manage environment variables that will be available during agent runs and validation.
+            </Typography>
+            
+            {/* Individual Secret Management */}
+            <Paper sx={{ p: 2 }}>
+              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+                <Typography variant="subtitle1">Individual Secrets</Typography>
+                <Button
+                  startIcon={<AddIcon />}
+                  onClick={addSecret}
+                  size="small"
+                >
+                  Add Secret
+                </Button>
+              </Stack>
+              
+              {secrets.map((secret, index) => (
+                <Stack key={index} direction="row" spacing={1} sx={{ mb: 1 }}>
+                  <TextField
+                    size="small"
+                    placeholder="ENV_VAR_NAME"
+                    value={secret.key}
+                    onChange={(e) => updateSecret(index, 'key', e.target.value)}
+                    sx={{ flex: 1 }}
+                  />
+                  <TextField
+                    size="small"
+                    placeholder="value"
+                    type={showSecretValues ? 'text' : 'password'}
+                    value={secret.value}
+                    onChange={(e) => updateSecret(index, 'value', e.target.value)}
+                    sx={{ flex: 2 }}
+                  />
+                  <IconButton
+                    size="small"
+                    onClick={() => removeSecret(index)}
+                    color="error"
+                  >
+                    <DeleteIcon />
+                  </IconButton>
+                </Stack>
+              ))}
+              
+              <Button
+                startIcon={showSecretValues ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                onClick={() => setShowSecretValues(!showSecretValues)}
+                size="small"
+                sx={{ mt: 1 }}
+              >
+                {showSecretValues ? 'Hide' : 'Show'} Values
+              </Button>
+            </Paper>
+            
+            <Divider />
+            
+            {/* Text Format */}
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="subtitle1" sx={{ mb: 2 }}>
+                Paste as Text
+              </Typography>
+              <TextField
+                fullWidth
+                multiline
+                rows={8}
+                value={secretsText}
+                onChange={(e) => setSecretsText(e.target.value)}
+                placeholder={`CODEGEN_ORG_ID=323\nCODEGEN_TOKEN=sk-ce027fa7-3c8d-4beb-8c86-ed8ae982ac99\nGEMINI_API_KEY=your-key-here`}
+                variant="outlined"
+                sx={{ fontFamily: 'monospace' }}
+              />
+            </Paper>
+            
+            {secrets.length > 0 && (
+              <Alert severity="info">
+                <Typography variant="body2">
+                  {secrets.length} secret(s) configured for this project.
+                </Typography>
+              </Alert>
+            )}
+          </Stack>
         </TabPanel>
       </DialogContent>
 
-      <Divider />
-
-      <DialogActions sx={{ p: 2 }}>
-        <Button onClick={onClose}>
+      <DialogActions>
+        <Button onClick={onClose} disabled={loading}>
           Cancel
         </Button>
         <Button
           variant="contained"
           onClick={handleSave}
-          startIcon={<SaveIcon />}
+          disabled={loading}
+          startIcon={loading ? <CircularProgress size={20} /> : <SaveIcon />}
         >
-          Save Settings
+          {loading ? 'Saving...' : 'Save Settings'}
         </Button>
       </DialogActions>
     </Dialog>
@@ -524,3 +483,4 @@ Guidelines:
 };
 
 export default ProjectSettingsDialog;
+
