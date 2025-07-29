@@ -733,25 +733,14 @@ class CodegenClient:
             else None
         )
 
-        # Webhooks
-        self.webhook_handler = (
-            WebhookHandler(secret_key=self.config.webhook_secret)
-            if self.config.enable_webhooks
-            else None
-        )
+        # Webhooks (simplified for now)
+        self.webhook_handler = None
 
-        # Bulk operations
-        self.bulk_manager = (
-            BulkOperationManager(
-                max_workers=self.config.bulk_max_workers,
-                batch_size=self.config.bulk_batch_size,
-            )
-            if self.config.enable_bulk_operations
-            else None
-        )
+        # Bulk operations (simplified for now)  
+        self.bulk_manager = None
 
-        # Metrics
-        self.metrics = MetricsCollector() if self.config.enable_metrics else None
+        # Metrics (simplified for now)
+        self.metrics = None
 
         logger.info(f"Initialized CodegenClient with base URL: {self.config.base_url}")
 
