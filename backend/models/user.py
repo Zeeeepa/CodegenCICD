@@ -39,6 +39,7 @@ class User(BaseModel):
     
     # Relationships
     sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
+    pinned_projects = relationship("PinnedProject", back_populates="user", cascade="all, delete-orphan")
     
     def __repr__(self) -> str:
         return f"<User(username={self.username}, email={self.email})>"

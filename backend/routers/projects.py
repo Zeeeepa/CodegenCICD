@@ -1,522 +1,279 @@
 """
-Project management API endpoints
+Projects API Router
+
+This module provides REST API endpoints for managing pinned projects in the CodegenCICD dashboard.
+It handles project pinning, unpinning, and metadata management with proper authentication and validation.
 """
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.orm import Session
-from typing import List, Dict, Any, Optional
-import structlog
-from datetime import datetime
 
-from backend.database import get_db_session
-from backend.models.project import Project, ProjectSecret, ProjectAgentRun
-from backend.integrations.github_client import GitHubClient
-from backend.integrations.codegen_client import CodegenClient
-from backend.services.webhook_service import WebhookService
-from backend.config import get_settings
+from typing import List, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel, Field, validator
+import logging
+import uuid
 
-logger = structlog.get_logger(__name__)
+from backend.database import get_db
+from backend.services.project_service import ProjectService
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/projects", tags=["projects"])
-settings = get_settings()
 
 
-# Pydantic models for request/response
-from pydantic import BaseModel
+# Pydantic models for request/response validation
+class PinProjectRequest(BaseModel):
+    """Request model for pinning a project."""
+    github_repo_name: str = Field(..., min_length=1, max_length=255, description="GitHub repository name")
+    github_repo_url: str = Field(..., min_length=1, max_length=500, description="GitHub repository URL")
+    github_owner: str = Field(..., min_length=1, max_length=255, description="GitHub repository owner")
+    display_name: str = Field(None, max_length=255, description="Custom display name for the project")
+    description: str = Field(None, max_length=1000, description="Project description")
+    
+    @validator('github_repo_url')
+    def validate_github_url(cls, v):
+        """Validate that the URL is a valid GitHub repository URL."""
+        if not v.startswith(('https://github.com/', 'http://github.com/')):
+            raise ValueError('URL must be a valid GitHub repository URL')
+        return v
 
-class ProjectCreateRequest(BaseModel):
-    github_id: int
-    name: str
-    full_name: str
-    description: Optional[str] = None
+
+class UpdateProjectRequest(BaseModel):
+    """Request model for updating project metadata."""
+    display_name: str = Field(None, max_length=255, description="Custom display name for the project")
+    description: str = Field(None, max_length=1000, description="Project description")
+
+
+class PinnedProjectResponse(BaseModel):
+    """Response model for pinned project data."""
+    id: int
+    user_id: str
+    github_repo_name: str
+    github_repo_url: str
     github_owner: str
-    github_repo: str
-    github_url: str
-    default_branch: str = "main"
+    display_name: str
+    description: str = None
+    pinned_at: str
+    last_updated: str
+    is_active: bool
 
-class ProjectUpdateRequest(BaseModel):
-    auto_confirm_plans: Optional[bool] = None
-    auto_merge_validated_pr: Optional[bool] = None
-    planning_statement: Optional[str] = None
-    repository_rules: Optional[str] = None
-    setup_commands: Optional[str] = None
-    setup_branch: Optional[str] = None
 
-class SecretCreateRequest(BaseModel):
-    key: str
-    value: str
-
-class AgentRunRequest(BaseModel):
-    target_text: str
-
-class AgentRunContinueRequest(BaseModel):
+class ApiResponse(BaseModel):
+    """Generic API response model."""
+    success: bool
     message: str
+    data: Any = None
 
 
-@router.get("/github-repos")
-async def list_github_repos(db: Session = Depends(get_db_session)):
-    """List available GitHub repositories"""
-    try:
-        github_client = GitHubClient()
-        repos = await github_client.list_repositories()
-        
-        # Get currently pinned projects
-        pinned_projects = db.query(Project).filter(Project.is_active == True).all()
-        pinned_github_ids = {p.github_id for p in pinned_projects}
-        
-        # Mark repos as pinned
-        for repo in repos:
-            repo["is_pinned"] = repo["id"] in pinned_github_ids
-        
-        return {"repositories": repos}
-    except Exception as e:
-        logger.error("Failed to list GitHub repositories", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+# Dependency for getting current user (mock implementation for now)
+async def get_current_user() -> uuid.UUID:
+    """
+    Get the current authenticated user ID.
+    
+    TODO: Implement proper authentication middleware
+    For now, returns a mock user ID for testing purposes.
+    """
+    # This is a mock implementation - replace with actual authentication
+    return uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
 
 
-@router.post("/")
-async def create_project(
-    request: ProjectCreateRequest,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db_session)
+@router.get("/pinned", response_model=List[PinnedProjectResponse])
+async def get_pinned_projects(
+    db: AsyncSession = Depends(get_db),
+    current_user_id: uuid.UUID = Depends(get_current_user)
 ):
-    """Create/pin a new project"""
-    try:
-        # Check if project already exists
-        existing = db.query(Project).filter(Project.github_id == request.github_id).first()
-        if existing:
-            if not existing.is_active:
-                existing.is_active = True
-                existing.pinned_at = datetime.utcnow()
-                db.commit()
-                return {"project": existing.to_dict()}
-            else:
-                raise HTTPException(status_code=409, detail="Project already pinned")
+    """
+    Get all pinned projects for the authenticated user.
+    
+    Returns:
+        List of pinned projects with metadata
         
-        # Create new project
-        project = Project(
-            github_id=request.github_id,
-            name=request.name,
-            full_name=request.full_name,
-            description=request.description,
-            github_owner=request.github_owner,
-            github_repo=request.github_repo,
-            github_url=request.github_url,
-            default_branch=request.default_branch,
-            webhook_url=settings.cloudflare_worker_url,
+    Raises:
+        HTTPException: If database error occurs
+    """
+    try:
+        service = ProjectService(db)
+        projects = await service.get_pinned_projects(current_user_id)
+        
+        logger.info(f"Retrieved {len(projects)} pinned projects for user {current_user_id}")
+        return projects
+        
+    except Exception as e:
+        logger.error(f"Error in get_pinned_projects: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve pinned projects"
+        )
+
+
+@router.post("/pin", response_model=ApiResponse)
+async def pin_project(
+    request: PinProjectRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user_id: uuid.UUID = Depends(get_current_user)
+):
+    """
+    Pin a project to the user's dashboard.
+    
+    Args:
+        request: Project data to pin
+        
+    Returns:
+        API response with pinned project data
+        
+    Raises:
+        HTTPException: If validation fails or project already pinned
+    """
+    try:
+        service = ProjectService(db)
+        project_data = request.dict()
+        
+        pinned_project = await service.pin_project(current_user_id, project_data)
+        
+        return ApiResponse(
+            success=True,
+            message="Project pinned successfully",
+            data=pinned_project
         )
         
-        db.add(project)
-        db.commit()
-        db.refresh(project)
-        
-        # Set up webhook in background
-        background_tasks.add_task(setup_project_webhook, project.id)
-        
-        logger.info("Project created", project_id=project.id, name=project.name)
-        return {"project": project.to_dict()}
-        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error("Failed to create project", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error in pin_project: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to pin project"
+        )
 
 
-@router.get("/")
-async def list_projects(db: Session = Depends(get_db_session)):
-    """List all pinned projects"""
-    try:
-        projects = db.query(Project).filter(Project.is_active == True).all()
-        return {"projects": [p.to_dict() for p in projects]}
-    except Exception as e:
-        logger.error("Failed to list projects", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/{project_id}")
-async def get_project(project_id: int, db: Session = Depends(get_db_session)):
-    """Get project details"""
-    try:
-        project = db.query(Project).filter(Project.id == project_id).first()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        
-        return {"project": project.to_dict()}
-    except Exception as e:
-        logger.error("Failed to get project", project_id=project_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.put("/{project_id}")
-async def update_project(
+@router.delete("/unpin/{project_id}", response_model=ApiResponse)
+async def unpin_project(
     project_id: int,
-    request: ProjectUpdateRequest,
-    db: Session = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db),
+    current_user_id: uuid.UUID = Depends(get_current_user)
 ):
-    """Update project settings"""
+    """
+    Unpin a project from the user's dashboard.
+    
+    Args:
+        project_id: ID of the project to unpin
+        
+    Returns:
+        API response confirming unpinning
+        
+    Raises:
+        HTTPException: If project not found or not owned by user
+    """
     try:
-        project = db.query(Project).filter(Project.id == project_id).first()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
+        service = ProjectService(db)
+        success = await service.unpin_project(current_user_id, project_id)
         
-        # Update fields
-        update_data = request.dict(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(project, field, value)
-        
-        db.commit()
-        db.refresh(project)
-        
-        logger.info("Project updated", project_id=project_id, updates=update_data)
-        return {"project": project.to_dict()}
-        
-    except Exception as e:
-        logger.error("Failed to update project", project_id=project_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/{project_id}")
-async def delete_project(project_id: int, db: Session = Depends(get_db_session)):
-    """Unpin/deactivate a project"""
-    try:
-        project = db.query(Project).filter(Project.id == project_id).first()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        
-        project.is_active = False
-        db.commit()
-        
-        logger.info("Project unpinned", project_id=project_id)
-        return {"message": "Project unpinned successfully"}
-        
-    except Exception as e:
-        logger.error("Failed to unpin project", project_id=project_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# Project Secrets Management
-@router.get("/{project_id}/secrets")
-async def list_project_secrets(project_id: int, db: Session = Depends(get_db_session)):
-    """List project secrets"""
-    try:
-        project = db.query(Project).filter(Project.id == project_id).first()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        
-        secrets = db.query(ProjectSecret).filter(ProjectSecret.project_id == project_id).all()
-        return {"secrets": [s.to_dict() for s in secrets]}
-        
-    except Exception as e:
-        logger.error("Failed to list project secrets", project_id=project_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/{project_id}/secrets")
-async def create_project_secret(
-    project_id: int,
-    request: SecretCreateRequest,
-    db: Session = Depends(get_db_session)
-):
-    """Create a project secret"""
-    try:
-        project = db.query(Project).filter(Project.id == project_id).first()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        
-        # Check if secret already exists
-        existing = db.query(ProjectSecret).filter(
-            ProjectSecret.project_id == project_id,
-            ProjectSecret.key == request.key
-        ).first()
-        
-        if existing:
-            # Update existing secret
-            existing.value = request.value
-            db.commit()
-            db.refresh(existing)
-            return {"secret": existing.to_dict()}
+        if success:
+            return ApiResponse(
+                success=True,
+                message="Project unpinned successfully"
+            )
         else:
-            # Create new secret
-            secret = ProjectSecret(
-                project_id=project_id,
-                key=request.key,
-                value=request.value
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
             )
-            db.add(secret)
-            db.commit()
-            db.refresh(secret)
-            return {"secret": secret.to_dict()}
-        
+            
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error("Failed to create project secret", project_id=project_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/{project_id}/secrets/{secret_id}")
-async def delete_project_secret(
-    project_id: int,
-    secret_id: int,
-    db: Session = Depends(get_db_session)
-):
-    """Delete a project secret"""
-    try:
-        secret = db.query(ProjectSecret).filter(
-            ProjectSecret.id == secret_id,
-            ProjectSecret.project_id == project_id
-        ).first()
-        
-        if not secret:
-            raise HTTPException(status_code=404, detail="Secret not found")
-        
-        db.delete(secret)
-        db.commit()
-        
-        return {"message": "Secret deleted successfully"}
-        
-    except Exception as e:
-        logger.error("Failed to delete project secret", project_id=project_id, secret_id=secret_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# Agent Run Management
-@router.post("/{project_id}/agent-runs")
-async def create_agent_run(
-    project_id: int,
-    request: AgentRunRequest,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db_session)
-):
-    """Create a new agent run for the project"""
-    try:
-        project = db.query(Project).filter(Project.id == project_id).first()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        
-        # Create agent run record
-        agent_run = ProjectAgentRun(
-            project_id=project_id,
-            target_text=request.target_text,
-            status="pending"
+        logger.error(f"Error in unpin_project: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to unpin project"
         )
-        db.add(agent_run)
-        db.commit()
-        db.refresh(agent_run)
-        
-        # Start agent run in background
-        background_tasks.add_task(execute_agent_run, agent_run.id)
-        
-        logger.info("Agent run created", agent_run_id=agent_run.id, project_id=project_id)
-        return {"agent_run": agent_run.to_dict()}
-        
-    except Exception as e:
-        logger.error("Failed to create agent run", project_id=project_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{project_id}/agent-runs")
-async def list_agent_runs(project_id: int, db: Session = Depends(get_db_session)):
-    """List agent runs for the project"""
-    try:
-        runs = db.query(ProjectAgentRun).filter(
-            ProjectAgentRun.project_id == project_id
-        ).order_by(ProjectAgentRun.created_at.desc()).all()
-        
-        return {"agent_runs": [r.to_dict() for r in runs]}
-        
-    except Exception as e:
-        logger.error("Failed to list agent runs", project_id=project_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/{project_id}/agent-runs/{run_id}")
-async def get_agent_run(
+@router.put("/pinned/{project_id}", response_model=ApiResponse)
+async def update_pinned_project(
     project_id: int,
-    run_id: int,
-    db: Session = Depends(get_db_session)
+    request: UpdateProjectRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user_id: uuid.UUID = Depends(get_current_user)
 ):
-    """Get agent run details"""
+    """
+    Update metadata for a pinned project.
+    
+    Args:
+        project_id: ID of the project to update
+        request: Updated project data
+        
+    Returns:
+        API response with updated project data
+        
+    Raises:
+        HTTPException: If project not found or validation fails
+    """
     try:
-        run = db.query(ProjectAgentRun).filter(
-            ProjectAgentRun.id == run_id,
-            ProjectAgentRun.project_id == project_id
-        ).first()
+        service = ProjectService(db)
+        update_data = request.dict(exclude_unset=True)
         
-        if not run:
-            raise HTTPException(status_code=404, detail="Agent run not found")
+        updated_project = await service.update_pinned_project(
+            current_user_id, project_id, update_data
+        )
         
-        return {"agent_run": run.to_dict()}
+        return ApiResponse(
+            success=True,
+            message="Project updated successfully",
+            data=updated_project
+        )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error("Failed to get agent run", project_id=project_id, run_id=run_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error in update_pinned_project: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update project"
+        )
 
 
-@router.post("/{project_id}/agent-runs/{run_id}/continue")
-async def continue_agent_run(
+@router.get("/pinned/{project_id}", response_model=PinnedProjectResponse)
+async def get_pinned_project(
     project_id: int,
-    run_id: int,
-    request: AgentRunContinueRequest,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db),
+    current_user_id: uuid.UUID = Depends(get_current_user)
 ):
-    """Continue an agent run with additional input"""
+    """
+    Get a specific pinned project by ID.
+    
+    Args:
+        project_id: ID of the project to retrieve
+        
+    Returns:
+        Pinned project data
+        
+    Raises:
+        HTTPException: If project not found
+    """
     try:
-        run = db.query(ProjectAgentRun).filter(
-            ProjectAgentRun.id == run_id,
-            ProjectAgentRun.project_id == project_id
-        ).first()
+        service = ProjectService(db)
+        project = await service.get_project_by_id(current_user_id, project_id)
         
-        if not run:
-            raise HTTPException(status_code=404, detail="Agent run not found")
-        
-        if run.status not in ["completed", "waiting_for_input"]:
-            raise HTTPException(status_code=400, detail="Agent run cannot be continued")
-        
-        # Continue agent run in background
-        background_tasks.add_task(continue_agent_run_task, run_id, request.message)
-        
-        return {"message": "Agent run continuation started"}
-        
-    except Exception as e:
-        logger.error("Failed to continue agent run", project_id=project_id, run_id=run_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/{project_id}/setup-commands/run")
-async def run_setup_commands(
-    project_id: int,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db_session)
-):
-    """Run setup commands for the project"""
-    try:
-        project = db.query(Project).filter(Project.id == project_id).first()
         if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        
-        if not project.setup_commands:
-            raise HTTPException(status_code=400, detail="No setup commands configured")
-        
-        # Run setup commands in background
-        background_tasks.add_task(execute_setup_commands, project_id)
-        
-        return {"message": "Setup commands execution started"}
-        
-    except Exception as e:
-        logger.error("Failed to run setup commands", project_id=project_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# Background tasks
-async def setup_project_webhook(project_id: int):
-    """Set up GitHub webhook for the project"""
-    try:
-        async with get_db_session() as db:
-            project = db.query(Project).filter(Project.id == project_id).first()
-            if not project:
-                return
-            
-            webhook_service = WebhookService()
-            webhook_url = await webhook_service.setup_github_webhook(
-                project.github_owner,
-                project.github_repo,
-                project.webhook_url
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
             )
-            
-            if webhook_url:
-                project.webhook_active = True
-                db.commit()
-                logger.info("Webhook set up successfully", project_id=project_id)
-            
+        
+        return project
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error("Failed to set up webhook", project_id=project_id, error=str(e))
+        logger.error(f"Error in get_pinned_project: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve project"
+        )
 
 
-async def execute_agent_run(agent_run_id: int):
-    """Execute agent run via Codegen API"""
-    try:
-        async with get_db_session() as db:
-            run = db.query(ProjectAgentRun).filter(ProjectAgentRun.id == agent_run_id).first()
-            if not run:
-                return
-            
-            project = db.query(Project).filter(Project.id == run.project_id).first()
-            if not project:
-                return
-            
-            # Update status
-            run.status = "running"
-            db.commit()
-            
-            # Prepare prompt
-            prompt = f"<Project='{project.name}'>\n"
-            if project.planning_statement:
-                prompt += f"{project.planning_statement}\n\n"
-            if project.repository_rules:
-                prompt += f"Repository Rules:\n{project.repository_rules}\n\n"
-            prompt += f"Target: {run.target_text}"
-            
-            # Execute via Codegen API
-            codegen_client = CodegenClient()
-            response = await codegen_client.create_agent_run(
-                org_id=int(settings.codegen_org_id),
-                prompt=prompt,
-                metadata={"project_id": project.id, "agent_run_id": run.id}
-            )
-            
-            # Update run with response
-            run.codegen_run_id = response.id
-            run.response_data = response.to_dict()
-            run.status = response.status or "running"
-            db.commit()
-            
-            logger.info("Agent run started", agent_run_id=agent_run_id, codegen_run_id=response.id)
-            
-    except Exception as e:
-        logger.error("Failed to execute agent run", agent_run_id=agent_run_id, error=str(e))
-        # Update run status to failed
-        async with get_db_session() as db:
-            run = db.query(ProjectAgentRun).filter(ProjectAgentRun.id == agent_run_id).first()
-            if run:
-                run.status = "failed"
-                db.commit()
-
-
-async def continue_agent_run_task(agent_run_id: int, message: str):
-    """Continue agent run with additional message"""
-    try:
-        async with get_db_session() as db:
-            run = db.query(ProjectAgentRun).filter(ProjectAgentRun.id == agent_run_id).first()
-            if not run or not run.codegen_run_id:
-                return
-            
-            codegen_client = CodegenClient()
-            response = await codegen_client.continue_agent_run(
-                org_id=int(settings.codegen_org_id),
-                run_id=run.codegen_run_id,
-                message=message
-            )
-            
-            # Update run status
-            run.status = "running"
-            run.response_data = response.to_dict()
-            db.commit()
-            
-            logger.info("Agent run continued", agent_run_id=agent_run_id)
-            
-    except Exception as e:
-        logger.error("Failed to continue agent run", agent_run_id=agent_run_id, error=str(e))
-
-
-async def execute_setup_commands(project_id: int):
-    """Execute setup commands for the project"""
-    try:
-        async with get_db_session() as db:
-            project = db.query(Project).filter(Project.id == project_id).first()
-            if not project or not project.setup_commands:
-                return
-            
-            # TODO: Implement setup command execution using Grainchain
-            # This would involve creating a sandbox, cloning the repo, and running commands
-            logger.info("Setup commands execution started", project_id=project_id)
-            
-    except Exception as e:
-        logger.error("Failed to execute setup commands", project_id=project_id, error=str(e))
-
+# Health check endpoint for the projects API
+@router.get("/health")
+async def projects_health_check():
+    """Health check endpoint for the projects API."""
+    return {"status": "healthy", "service": "projects"}
