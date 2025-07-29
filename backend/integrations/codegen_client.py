@@ -1,5 +1,8 @@
 """
 Codegen API client for CodegenCICD Dashboard
+
+This is the legacy client. For new features and enhanced functionality,
+use the AsyncCodegenClient from async_client.py
 """
 import asyncio
 from typing import Dict, Any, Optional, List
@@ -7,6 +10,8 @@ from datetime import datetime
 import structlog
 
 from .base_client import BaseClient, APIError
+from .async_client import AsyncCodegenClient, create_production_client
+from .config import ClientConfig
 from backend.config import get_settings
 
 logger = structlog.get_logger(__name__)
@@ -290,4 +295,26 @@ class CodegenClient(BaseClient):
                             original_run_id=original_run_id,
                             error=str(e))
             raise
-
+    
+    @classmethod
+    def create_enhanced_client(cls, api_token: Optional[str] = None, org_id: Optional[str] = None) -> AsyncCodegenClient:
+        """Create an enhanced async client with all advanced features"""
+        config = ClientConfig()
+        
+        if api_token:
+            config.api_token = api_token
+        else:
+            config.api_token = settings.codegen_api_token
+            
+        if org_id:
+            config.org_id = org_id
+        else:
+            config.org_id = settings.codegen_org_id
+        
+        # Use production configuration for dashboard
+        from .config import ConfigPresets
+        prod_config = ConfigPresets.production()
+        prod_config.api_token = config.api_token
+        prod_config.org_id = config.org_id
+        
+        return AsyncCodegenClient(prod_config)
