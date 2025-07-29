@@ -165,11 +165,15 @@ npm run build
 npm run dev`,
     },
     {
-      name: 'Docker Compose',
-      commands: `docker-compose down
-docker-compose build
-docker-compose up -d
-docker-compose logs -f`,
+      name: 'Python + React',
+      commands: `cd backend
+source venv/bin/activate
+pip install -r requirements.txt
+python main.py &
+
+cd ../frontend
+npm install
+npm start`,
     },
   ];
 
@@ -368,4 +372,3 @@ docker-compose logs -f`,
 };
 
 export default SetupCommandsTab;
-

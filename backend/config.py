@@ -79,10 +79,10 @@ class Settings(BaseSettings):
     # =============================================================================
     # Grainchain (sandboxing)
     grainchain_enabled: bool = Field(default=True, env="GRAINCHAIN_ENABLED")
-    grainchain_docker_socket: str = Field(default="/var/run/docker.sock", env="GRAINCHAIN_DOCKER_SOCKET")
+    grainchain_url: str = Field(default="http://localhost:8001", env="GRAINCHAIN_URL")
     grainchain_workspace_dir: str = Field(default="/tmp/grainchain_workspaces", env="GRAINCHAIN_WORKSPACE_DIR")
-    grainchain_max_containers: int = Field(default=10, env="GRAINCHAIN_MAX_CONTAINERS")
-    grainchain_container_timeout: int = Field(default=3600, env="GRAINCHAIN_CONTAINER_TIMEOUT")
+    grainchain_max_instances: int = Field(default=10, env="GRAINCHAIN_MAX_INSTANCES")
+    grainchain_instance_timeout: int = Field(default=3600, env="GRAINCHAIN_INSTANCE_TIMEOUT")
     
     # Web-eval-agent (UI testing)
     web_eval_enabled: bool = Field(default=True, env="WEB_EVAL_ENABLED")
@@ -243,4 +243,3 @@ def get_cors_origins() -> List[str]:
             "http://127.0.0.1:8000"
         ]
     return settings.allowed_origins
-

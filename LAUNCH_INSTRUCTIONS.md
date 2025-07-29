@@ -1,213 +1,263 @@
 # 🚀 CodegenCICD Dashboard - Launch Instructions
 
-## Quick Start
+## 🎯 **Quick Start Guide**
 
-The CodegenCICD Dashboard is now **RUNNING** and ready to use!
+The CodegenCICD Dashboard is a native Python + React application that provides AI-powered CI/CD management without any containerization dependencies.
 
-### 🔗 Access URLs
+## 📋 **Prerequisites**
 
-- **Frontend (React UI)**: http://localhost:3001
-- **Backend API**: http://localhost:8000
-- **API Health Check**: http://localhost:8000/health
-- **API Documentation**: http://localhost:8000/docs
+Before launching, ensure you have:
+- **Python 3.8+** installed
+- **Node.js 16+** installed  
+- **Git** installed
+- **Required API keys** (see configuration section)
 
-### 📊 Current Status
+## 🚀 **Launch Process**
 
-Both services are currently running:
-- ✅ Backend: FastAPI server on port 8000
-- ✅ Frontend: React development server on port 3001
-
-## 🎯 Available Features
-
-### 1. **Project Management Dashboard**
-- View and manage GitHub projects
-- Real-time project cards with status indicators
-- Auto-merge and auto-confirm capabilities
-
-### 2. **AI Agent Runs**
-- Natural language to code generation via Codegen API
-- Target text input with planning statements
-- Real-time progress tracking
-- Support for regular, plan, and PR response types
-
-### 3. **4-Tab Configuration System**
-- **Repository Rules**: Custom rules for the AI agent
-- **Setup Commands**: Deployment and build commands
-- **Secrets Management**: Encrypted environment variables
-- **Planning Statements**: AI agent behavior configuration
-
-### 4. **Validation Pipeline**
-- 7-step automated validation process
-- Integration with grainchain (sandboxing)
-- Integration with graph-sitter (code analysis)
-- Integration with web-eval-agent (UI testing)
-- Gemini API for intelligent validation
-
-### 5. **Real-time Updates**
-- WebSocket connections for live progress
-- Instant notifications for PR creation
-- Live validation status updates
-
-## 🛠️ Management Commands
-
-### Start Services
+### **Step 1: Install Dependencies**
 ```bash
-./launch.sh
+./deploy.sh
 ```
 
-### Check Status
+This will:
+- ✅ Check system requirements
+- ✅ Create Python virtual environment
+- ✅ Install all Python dependencies
+- ✅ Install all Node.js dependencies
+- ✅ Set up configuration templates
+
+### **Step 2: Configure Environment**
 ```bash
-./status.sh
+cp .env.example .env
+# Edit .env with your API keys
 ```
 
-### Stop Services
+**Required Configuration:**
+- `CODEGEN_ORG_ID` - Your Codegen organization ID
+- `CODEGEN_API_TOKEN` - Your Codegen API token
+- `GITHUB_TOKEN` - GitHub personal access token
+- `GEMINI_API_KEY` - Google Gemini API key
+- `CLOUDFLARE_API_KEY` - Cloudflare API key
+- `CLOUDFLARE_ACCOUNT_ID` - Cloudflare account ID
+- `CLOUDFLARE_WORKER_URL` - Webhook gateway URL
+
+### **Step 3: Start Services**
 ```bash
-./stop.sh
+./start.sh
 ```
 
-### View Logs
-```bash
-# Backend logs
-tail -f backend.log
+This will:
+- ✅ Validate all environment variables
+- ✅ Prompt for any missing values
+- ✅ Check port availability
+- ✅ Start backend FastAPI server
+- ✅ Start frontend React development server
+- ✅ Provide access URLs and monitoring info
 
-# Frontend logs
-tail -f frontend.log
+## 🌐 **Access URLs**
 
-# Both logs
-tail -f backend.log frontend.log
+Once launched, access the dashboard at:
+
+- **🎨 Frontend Dashboard**: http://localhost:3001
+- **🔧 Backend API**: http://localhost:8000
+- **📚 API Documentation**: http://localhost:8000/docs
+- **❤️ Health Check**: http://localhost:8000/health
+
+## 🎯 **Dashboard Features**
+
+### **1. Project Management**
+- Select GitHub repositories from dropdown
+- View project cards with real-time status
+- Configure project-specific settings
+
+### **2. AI Agent Runs**
+- Click "Agent Run" button on any project card
+- Enter natural language goals/requirements
+- Monitor real-time progress via WebSocket
+- Handle different response types (regular/plan/PR)
+
+### **3. Configuration System (4 Tabs)**
+
+#### **Repository Rules Tab**
+Define custom AI agent behavior:
+```
+Follow TypeScript best practices
+Include comprehensive error handling
+Write unit tests for all functions
+Use Material-UI components
 ```
 
-## 🔧 Configuration
-
-### Environment Variables
-The system uses the following key environment variables (already configured):
-
+#### **Setup Commands Tab**
+Configure deployment commands:
 ```bash
-# Codegen API
-CODEGEN_ORG_ID=your_org_id_here
-CODEGEN_API_TOKEN=your_codegen_api_token_here
+cd backend
+source venv/bin/activate
+pip install -r requirements.txt
+python main.py &
 
-# GitHub Integration
-GITHUB_TOKEN=your_github_token_here
-
-# AI Services
-GEMINI_API_KEY=your_gemini_api_key_here
-
-# Cloudflare (Webhooks)
-CLOUDFLARE_API_KEY=your_cloudflare_api_key_here
-CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id_here
-CLOUDFLARE_WORKER_URL=your_cloudflare_worker_url_here
+cd ../frontend
+npm install
+npm start
 ```
 
-## 🎮 How to Use
+#### **Secrets Management Tab**
+Store environment variables securely:
+- Add individual key-value pairs
+- Bulk paste from text file
+- Encrypted storage
 
-### 1. **Access the Dashboard**
-Open http://localhost:3001 in your browser to see the main dashboard.
-
-### 2. **Select a Project**
-Use the project dropdown to select from available GitHub repositories.
-
-### 3. **Run an AI Agent**
-1. Click the "Agent Run" button on a project card
-2. Enter your target text/goal
-3. Click confirm to start the agent run
-4. Watch real-time progress updates
-
-### 4. **Configure Projects**
-Click the settings gear icon on any project card to access:
-- Repository rules
-- Setup commands
-- Secrets management
-- Planning statements
-
-### 5. **Validation Flow**
-When a PR is created, the system automatically:
-1. Creates a sandbox snapshot
-2. Clones the PR codebase
-3. Runs deployment commands
-4. Validates deployment success
-5. Runs UI testing with web-eval-agent
-6. Provides feedback or auto-merges
-
-## 🏗️ Architecture
-
-### Backend (FastAPI)
-- **Location**: `backend/`
-- **Port**: 8000
-- **Features**: REST API, WebSocket support, external service integrations
-
-### Frontend (React + TypeScript)
-- **Location**: `frontend/`
-- **Port**: 3001
-- **Features**: Material-UI dashboard, real-time updates, project management
-
-### External Integrations
-- **Codegen API**: AI agent coordination
-- **GitHub API**: Repository management
-- **Grainchain**: Sandboxing and snapshots
-- **Graph-sitter**: Code quality analysis
-- **Web-eval-agent**: UI testing and validation
-- **Gemini API**: Intelligent validation
-
-## 🔍 Troubleshooting
-
-### Services Not Starting
-```bash
-# Check if ports are in use
-lsof -i :8000
-lsof -i :3001
-
-# Kill existing processes if needed
-./stop.sh
-./launch.sh
+#### **Planning Statements Tab**
+Configure AI agent personality:
+```
+You are a senior full-stack developer.
+Focus on clean, maintainable code.
+Always include proper error handling.
+Use modern React patterns and hooks.
 ```
 
-### API Not Responding
-```bash
-# Check backend health
-curl http://localhost:8000/health
+### **4. Validation Pipeline**
 
-# Check backend logs
-tail -f backend.log
+The 7-step automated validation process:
+
+1. **📸 Snapshot Creation** - Grainchain creates isolated environment
+2. **📥 PR Clone** - Downloads and prepares PR codebase
+3. **🚀 Deployment** - Runs configured setup commands
+4. **✅ Validation** - Gemini AI validates deployment success
+5. **🧪 UI Testing** - Web-eval-agent tests all user flows
+6. **🔄 Error Handling** - Automatic retry with error context
+7. **🎯 Auto-merge** - Merge validated PRs (if enabled)
+
+## 📊 **Monitoring & Logs**
+
+### **Service Status**
+```bash
+# Check if services are running
+ps aux | grep -E "(python.*main.py|npm.*start)"
+
+# Check port usage
+lsof -i :8000,3001
 ```
 
-### Frontend Not Loading
+### **Log Files**
 ```bash
-# Check frontend accessibility
-curl http://localhost:3001
+# View backend logs
+tail -f logs/backend.log
 
-# Check frontend logs
-tail -f frontend.log
+# View frontend logs  
+tail -f logs/frontend.log
+
+# View both logs simultaneously
+tail -f logs/backend.log logs/frontend.log
 ```
 
-## 📝 Development
+### **Service PIDs**
+Service process IDs are stored in:
+- `logs/backend.pid`
+- `logs/frontend.pid`
 
-### Backend Development
+## 🛑 **Stopping Services**
+
+The `start.sh` script runs in the foreground and handles graceful shutdown:
+
+- **Ctrl+C** - Gracefully stops both services
+- **Kill PIDs** - Manually stop services using stored PIDs
+
+```bash
+# Manual stop using PIDs
+kill $(cat logs/backend.pid)
+kill $(cat logs/frontend.pid)
+```
+
+## 🔧 **Troubleshooting**
+
+### **Port Conflicts**
+If ports 8000 or 3001 are in use:
+```bash
+# Find and kill processes using the ports
+lsof -ti:8000,3001 | xargs kill -9
+```
+
+### **Environment Variable Issues**
+The `start.sh` script will prompt for missing variables, but you can also:
+```bash
+# Validate your .env file
+grep -v '^#' .env | grep '='
+```
+
+### **Python Virtual Environment Issues**
+```bash
+# Recreate virtual environment
+rm -rf backend/venv
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### **Node.js Dependencies Issues**
+```bash
+# Clear and reinstall
+cd frontend
+rm -rf node_modules package-lock.json
+npm cache clean --force
+npm install
+```
+
+## 🔄 **Development Mode**
+
+For development, you can run services separately:
+
+### **Backend Only**
 ```bash
 cd backend
 source venv/bin/activate
 python main.py
 ```
 
-### Frontend Development
+### **Frontend Only**
 ```bash
 cd frontend
-PORT=3001 npm start
+npm start
 ```
 
-### Adding New Features
-1. Backend: Add endpoints in `backend/main.py`
-2. Frontend: Add components in `frontend/src/components/`
-3. API integration: Update `frontend/src/services/api.ts`
+## 🌟 **Key Integrations**
 
-## 🎉 Success!
+The dashboard integrates with these external services:
 
-Your CodegenCICD Dashboard is now fully operational with:
-- ✅ Complete UI dashboard
-- ✅ AI agent integration
-- ✅ Real-time updates
-- ✅ Validation pipeline
-- ✅ External service integrations
-- ✅ Auto-merge capabilities
+- **[Codegen API](https://docs.codegen.com/api-reference)** - AI agent coordination
+- **[Grainchain](https://github.com/Zeeeepa/grainchain)** - Sandboxing and snapshots
+- **[Graph-sitter](https://github.com/Zeeeepa/graph-sitter)** - Code quality analysis
+- **[Web-eval-agent](https://github.com/Zeeeepa/web-eval-agent)** - UI testing
+- **GitHub API** - Repository management
+- **Gemini AI** - Intelligent validation
+- **Cloudflare Workers** - Webhook gateway
 
-**Ready to transform your development workflow with AI-powered CI/CD!** 🚀
+## 🎉 **Success!**
+
+Once launched successfully, you'll see:
+
+```
+🎉 CodegenCICD Dashboard is now running!
+========================================
+
+🔗 Access URLs:
+   Frontend (React UI): http://localhost:3001
+   Backend API:         http://localhost:8000
+   API Health Check:    http://localhost:8000/health
+   API Documentation:   http://localhost:8000/docs
+
+📊 Service Status:
+   Backend PID:  12345
+   Frontend PID: 12346
+
+📝 Logs:
+   Backend logs: tail -f logs/backend.log
+   Frontend logs: tail -f logs/frontend.log
+
+🚀 Dashboard ready! Open http://localhost:3001 in your browser
+```
+
+**Your AI-powered CI/CD dashboard is now ready for use!** 🎯
+
+Navigate to http://localhost:3001 to start managing your projects with AI assistance.
+
