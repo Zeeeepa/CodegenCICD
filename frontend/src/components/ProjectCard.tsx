@@ -1,146 +1,257 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * Project Card Component with all CICD features
+ */
+
+import React, { useState } from 'react';
 import {
   Card,
   CardContent,
   CardActions,
   Typography,
-  Button,
-  Chip,
   Box,
+  Button,
   IconButton,
-  Menu,
-  MenuItem,
+  Chip,
+  Avatar,
   LinearProgress,
   Badge,
   Tooltip,
-  Alert,
+  Menu,
+  MenuItem,
+  Divider,
+  FormControlLabel,
+  Checkbox
 } from '@mui/material';
 import {
-  PlayArrow as PlayIcon,
+  PlayArrow as PlayArrowIcon,
   Settings as SettingsIcon,
-  MoreVert as MoreVertIcon,
   GitHub as GitHubIcon,
-  AutoMode as AutoModeIcon,
+  Refresh as RefreshIcon,
+  MoreVert as MoreVertIcon,
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
-  Pending as PendingIcon,
+  Warning as WarningIcon,
+  Schedule as ScheduleIcon,
+  Code as CodeIcon,
+  Security as SecurityIcon,
+  Terminal as TerminalIcon,
+  AutoMode as AutoModeIcon
 } from '@mui/icons-material';
-import { Project, AgentRun, agentRunsApi } from '../services/api';
-import { useAgentRunUpdates, useValidationUpdates } from '../hooks/useWebSocket';
-import AgentRunDialog from './AgentRunDialog';
+
+import { ProjectSettings } from './ProjectSettings';
+import { AgentRunDialog } from './AgentRunDialog';
+import { ValidationFlow } from './ValidationFlow';
+
+import { useProjectActions } from '../store/projectStore';
+import { useWorkflowActions, useActiveWorkflows } from '../store/workflowStore';
+import { Project, Notification, NotificationType, ProjectStatus, WorkflowStatus } from '../types/cicd';
+
+// ============================================================================
+// INTERFACES
+// ============================================================================
 
 interface ProjectCardProps {
   project: Project;
-  isSelected: boolean;
-  onSelect: () => void;
-  onUpdate: (data: Partial<Project>) => void;
-  onDelete: () => void;
-  onOpenConfig: () => void;
+  onNotification: (notification: Notification) => void;
 }
 
-const ProjectCard: React.FC<ProjectCardProps> = ({
+// ============================================================================
+// COMPONENT
+// ============================================================================
+
+export const ProjectCard: React.FC<ProjectCardProps> = ({
   project,
-  isSelected,
-  onSelect,
-  onUpdate,
-  onDelete,
-  onOpenConfig,
+  onNotification
 }) => {
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [agentRunDialogOpen, setAgentRunDialogOpen] = useState(false);
-  const [currentAgentRuns, setCurrentAgentRuns] = useState<AgentRun[]>([]);
-  const [loading, setLoading] = useState(false);
+  // State
+  const [showSettings, setShowSettings] = useState(false);
+  const [showAgentRun, setShowAgentRun] = useState(false);
+  const [showValidation, setShowValidation] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
 
-  // WebSocket hooks for real-time updates
-  const agentRunUpdates = useAgentRunUpdates(project.id);
-  const validationUpdates = useValidationUpdates();
+  // Store hooks
+  const { updateSettings, refreshProject, deleteProject } = useProjectActions();
+  const { createWorkflow } = useWorkflowActions();
+  const activeWorkflows = useActiveWorkflows(project.id);
 
-  // Load current agent runs
-  useEffect(() => {
-    loadAgentRuns();
-  }, [project.id]);
+  // ========================================================================
+  // COMPUTED VALUES
+  // ========================================================================
 
-  // Update agent runs from WebSocket
-  useEffect(() => {
-    if (agentRunUpdates.length > 0) {
-      setCurrentAgentRuns(prev => {
-        const updated = [...prev];
-        agentRunUpdates.forEach(update => {
-          const index = updated.findIndex(run => run.id === update.id);
-          if (index >= 0) {
-            updated[index] = { ...updated[index], ...update };
-          } else if (update.project_id === project.id) {
-            updated.push(update);
-          }
-        });
-        return updated;
-      });
-    }
-  }, [agentRunUpdates, project.id]);
+  const hasActiveWorkflow = activeWorkflows.length > 0;
+  const currentWorkflow = activeWorkflows[0]; // Most recent workflow
+  const hasCustomRules = project.settings.repositoryRules.trim().length > 0;
+  const hasSecrets = Object.keys(project.settings.secrets).length > 0;
+  const hasSetupCommands = project.settings.setupCommands.trim().length > 0;
 
-  const loadAgentRuns = async () => {
-    try {
-      const response = await agentRunsApi.getByProject(project.id);
-      setCurrentAgentRuns(response.data);
-    } catch (error) {
-      console.error('Failed to load agent runs:', error);
+  // Status color mapping
+  const getStatusColor = (status: ProjectStatus) => {
+    switch (status) {
+      case ProjectStatus.ACTIVE:
+        return 'success';
+      case ProjectStatus.ERROR:
+        return 'error';
+      case ProjectStatus.CONFIGURING:
+        return 'warning';
+      default:
+        return 'default';
     }
   };
 
-  const handleMenuClick = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget);
+  const getWorkflowStatusColor = (status?: WorkflowStatus) => {
+    switch (status) {
+      case WorkflowStatus.COMPLETED:
+        return 'success';
+      case WorkflowStatus.FAILED:
+        return 'error';
+      case WorkflowStatus.RUNNING:
+      case WorkflowStatus.VALIDATING:
+        return 'primary';
+      default:
+        return 'default';
+    }
+  };
+
+  // ========================================================================
+  // HANDLERS
+  // ========================================================================
+
+  const handleAgentRun = () => {
+    setShowAgentRun(true);
+  };
+
+  const handleAgentRunSubmit = async (target: string) => {
+    try {
+      const workflow = createWorkflow(
+        project.id,
+        target,
+        project.settings.planningStatement,
+        'manual'
+      );
+
+      onNotification({
+        id: `agent_run_${Date.now()}`,
+        type: NotificationType.INFO,
+        title: 'Agent Run Started',
+        message: `Started agent run for ${project.name}`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        autoDismiss: true,
+        dismissAfter: 3000
+      });
+
+      setShowAgentRun(false);
+    } catch (error) {
+      onNotification({
+        id: `agent_run_error_${Date.now()}`,
+        type: NotificationType.ERROR,
+        title: 'Agent Run Failed',
+        message: 'Failed to start agent run. Please try again.',
+        timestamp: new Date().toISOString(),
+        read: false,
+        autoDismiss: true,
+        dismissAfter: 5000
+      });
+    }
+  };
+
+  const handleAutoMergeToggle = async (enabled: boolean) => {
+    try {
+      await updateSettings(project.id, { autoMergeValidatedPR: enabled });
+      
+      onNotification({
+        id: `auto_merge_${Date.now()}`,
+        type: NotificationType.SUCCESS,
+        title: 'Auto-merge Updated',
+        message: `Auto-merge ${enabled ? 'enabled' : 'disabled'} for ${project.name}`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        autoDismiss: true,
+        dismissAfter: 3000
+      });
+    } catch (error) {
+      onNotification({
+        id: `auto_merge_error_${Date.now()}`,
+        type: NotificationType.ERROR,
+        title: 'Update Failed',
+        message: 'Failed to update auto-merge setting',
+        timestamp: new Date().toISOString(),
+        read: false,
+        autoDismiss: true,
+        dismissAfter: 5000
+      });
+    }
+  };
+
+  const handleRefresh = async () => {
+    try {
+      await refreshProject(project.id);
+      
+      onNotification({
+        id: `refresh_${Date.now()}`,
+        type: NotificationType.SUCCESS,
+        title: 'Project Refreshed',
+        message: `${project.name} has been refreshed`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        autoDismiss: true,
+        dismissAfter: 2000
+      });
+    } catch (error) {
+      onNotification({
+        id: `refresh_error_${Date.now()}`,
+        type: NotificationType.ERROR,
+        title: 'Refresh Failed',
+        message: 'Failed to refresh project data',
+        timestamp: new Date().toISOString(),
+        read: false,
+        autoDismiss: true,
+        dismissAfter: 5000
+      });
+    }
+  };
+
+  const handleDeleteProject = async () => {
+    if (window.confirm(`Are you sure you want to remove ${project.name} from the dashboard?`)) {
+      try {
+        await deleteProject(project.id);
+        
+        onNotification({
+          id: `delete_${Date.now()}`,
+          type: NotificationType.INFO,
+          title: 'Project Removed',
+          message: `${project.name} has been removed from dashboard`,
+          timestamp: new Date().toISOString(),
+          read: false,
+          autoDismiss: true,
+          dismissAfter: 3000
+        });
+      } catch (error) {
+        onNotification({
+          id: `delete_error_${Date.now()}`,
+          type: NotificationType.ERROR,
+          title: 'Delete Failed',
+          message: 'Failed to remove project',
+          timestamp: new Date().toISOString(),
+          read: false,
+          autoDismiss: true,
+          dismissAfter: 5000
+        });
+      }
+    }
+  };
+
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setMenuAnchor(event.currentTarget);
   };
 
   const handleMenuClose = () => {
-    setAnchorEl(null);
+    setMenuAnchor(null);
   };
 
-  const handleAgentRunStart = () => {
-    setAgentRunDialogOpen(true);
-  };
-
-  const handleAgentRunCreate = async (data: { target_text: string; planning_statement?: string }) => {
-    try {
-      setLoading(true);
-      await agentRunsApi.create({
-        project_id: project.id,
-        ...data,
-      });
-      setAgentRunDialogOpen(false);
-      await loadAgentRuns();
-    } catch (error) {
-      console.error('Failed to create agent run:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleToggleAutoMerge = () => {
-    onUpdate({ auto_merge_enabled: !project.auto_merge_enabled });
-  };
-
-  const handleToggleAutoConfirm = () => {
-    onUpdate({ auto_confirm_plans: !project.auto_confirm_plans });
-  };
-
-  // Get current status
-  const runningRuns = currentAgentRuns.filter(run => run.status === 'running');
-  const pendingRuns = currentAgentRuns.filter(run => run.status === 'pending');
-  const recentPRs = currentAgentRuns.filter(run => run.pr_number && run.pr_url);
-  const hasRepositoryRules = false; // This would come from configuration
-  const hasErrors = currentAgentRuns.some(run => run.status === 'failed');
-
-  const getStatusColor = () => {
-    if (hasErrors) return 'error';
-    if (runningRuns.length > 0) return 'warning';
-    if (pendingRuns.length > 0) return 'info';
-    return 'success';
-  };
-
-  const getStatusIcon = () => {
-    if (hasErrors) return <ErrorIcon />;
-    if (runningRuns.length > 0) return <PendingIcon />;
-    return <CheckCircleIcon />;
+  const handlePRClick = (prNumber: number) => {
+    // This would open the validation flow for the specific PR
+    setShowValidation(true);
   };
 
   return (
