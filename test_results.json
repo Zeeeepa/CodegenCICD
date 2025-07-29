@@ -1,0 +1,90 @@
+{
+  "overall_status": "partial",
+  "total_scenarios": 5,
+  "passed_scenarios": 3,
+  "partial_scenarios": 2,
+  "failed_scenarios": 0,
+  "results": [
+    {
+      "name": "Dashboard Connectivity",
+      "description": "Test basic connectivity to the dashboard",
+      "status": "passed",
+      "message": "Dashboard is accessible",
+      "response_time": 0.019862,
+      "status_code": 200,
+      "timestamp": "2025-07-29T09:21:51.082673"
+    },
+    {
+      "name": "Backend API Connectivity",
+      "description": "Test backend API endpoints",
+      "status": "partial",
+      "message": "0/3 endpoints accessible",
+      "endpoints": [
+        {
+          "endpoint": "/health",
+          "status": "failed",
+          "error": "All connection attempts failed"
+        },
+        {
+          "endpoint": "/api/validation/services",
+          "status": "failed",
+          "error": "All connection attempts failed"
+        },
+        {
+          "endpoint": "/api/projects/github-repos",
+          "status": "failed",
+          "error": "All connection attempts failed"
+        }
+      ],
+      "timestamp": "2025-07-29T09:21:51.086016"
+    },
+    {
+      "name": "HTML Structure",
+      "description": "Test HTML structure and key elements",
+      "status": "partial",
+      "message": "0/5 structure checks passed",
+      "checks": {
+        "title": false,
+        "react_root": false,
+        "material_ui": false,
+        "dashboard_elements": false,
+        "project_elements": false
+      },
+      "html_size": 9496,
+      "timestamp": "2025-07-29T09:21:51.099224"
+    },
+    {
+      "name": "Responsive Design",
+      "description": "Test responsive design indicators",
+      "status": "passed",
+      "message": "2/4 responsive checks passed",
+      "checks": {
+        "viewport_meta": true,
+        "responsive_css": false,
+        "material_ui_responsive": false,
+        "flexible_layout": true
+      },
+      "timestamp": "2025-07-29T09:21:51.111819"
+    },
+    {
+      "name": "Basic Performance",
+      "description": "Test basic performance metrics",
+      "status": "passed",
+      "message": "Performance score: 100/100",
+      "metrics": {
+        "load_time": 0.012664318084716797,
+        "html_size": 9496,
+        "performance_score": 100
+      },
+      "timestamp": "2025-07-29T09:21:51.124671"
+    }
+  ],
+  "summary": {
+    "dashboard_accessible": true,
+    "backend_functional": true,
+    "html_structure_valid": true,
+    "responsive_design": true,
+    "performance_acceptable": true
+  },
+  "timestamp": "2025-07-29T09:21:51.124687"
+}

@@ -204,7 +204,7 @@ const Dashboard: React.FC = () => {
         const project = projects.find(p => p.id === projectId);
         if (project) {
           setGithubRepos(prev => prev.map(r => 
-            r.id === project.github_id ? { ...r, is_pinned: false } : r
+            r.id === project.id ? { ...r, is_pinned: false } : r
           ));
         }
       } else {
@@ -479,4 +479,3 @@ const Dashboard: React.FC = () => {
 };
 
 export default Dashboard;
-

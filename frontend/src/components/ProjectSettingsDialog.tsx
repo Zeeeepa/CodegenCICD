@@ -32,13 +32,13 @@ import {
   Visibility as VisibilityIcon,
   VisibilityOff as VisibilityOffIcon,
 } from '@mui/icons-material';
-import { ProjectData } from './EnhancedProjectCard';
+import { Project } from '../services/api';
 
 interface ProjectSettingsDialogProps {
   open: boolean;
   onClose: () => void;
-  project: ProjectData;
-  onUpdate: (updates: Partial<ProjectData>) => void;
+  project: Project;
+  onUpdate: (updates: Partial<Project>) => void;
   onRunSetupCommands: () => void;
 }
 
@@ -483,4 +483,3 @@ const ProjectSettingsDialog: React.FC<ProjectSettingsDialogProps> = ({
 };
 
 export default ProjectSettingsDialog;
-

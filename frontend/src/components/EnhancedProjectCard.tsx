@@ -319,7 +319,7 @@ export const EnhancedProjectCard: React.FC<EnhancedProjectCardProps> = ({
           open={Boolean(menuAnchor)}
           onClose={handleMenuClose}
         >
-          <MenuItem onClick={() => { onRefreshProject(project.id); handleMenuClose(); }}>
+          <MenuItem onClick={() => { window.location.reload(); handleMenuClose(); }}>
             <RefreshIcon sx={{ mr: 1 }} fontSize="small" />
             Refresh
           </MenuItem>
@@ -348,6 +348,7 @@ export const EnhancedProjectCard: React.FC<EnhancedProjectCardProps> = ({
         onClose={() => setSettingsDialogOpen(false)}
         project={project}
         onUpdate={(updates) => onUpdateProject(project.id, updates)}
+        onRunSetupCommands={() => onRunSetupCommands(project.id)}
       />
     </>
   );

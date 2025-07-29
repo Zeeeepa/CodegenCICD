@@ -28,19 +28,19 @@ import {
   Error as ErrorIcon,
   Warning as WarningIcon,
 } from '@mui/icons-material';
-import { ProjectData } from './EnhancedProjectCard';
+import { Project } from '../services/api';
 
 interface AgentRunDialogProps {
   open: boolean;
   onClose: () => void;
   onSubmit: (data: { target_text: string; planning_statement?: string }) => void;
   onContinue?: (message: string) => void;
-  project: ProjectData;
+  project: Project;
   loading: boolean;
 }
 
 interface AgentRunStatus {
-  id: number;
+  id: string;
   status: string;
   run_type: string;
   response_data?: any;
@@ -74,7 +74,7 @@ const AgentRunDialog: React.FC<AgentRunDialogProps> = ({
     }
   }, [open, project.current_agent_run]);
 
-  const loadRunDetails = async (runId: number) => {
+  const loadRunDetails = async (runId: string) => {
     try {
       const response = await fetch(`/api/projects/${project.id}/agent-runs/${runId}`);
       if (response.ok) {
@@ -91,7 +91,7 @@ const AgentRunDialog: React.FC<AgentRunDialogProps> = ({
     
     onSubmit({
       target_text: targetText,
-      planning_statement: project.planning_statement
+      planning_statement: project.has_planning_statement ? "Use planning statement" : ""
     });
     
     setTargetText('');
@@ -267,8 +267,7 @@ const AgentRunDialog: React.FC<AgentRunDialogProps> = ({
                     <Button
                       variant="outlined"
                       size="small"
-                      href={currentRun.pr_url}
-                      target="_blank"
+                      onClick={() => currentRun.pr_url && window.open(currentRun.pr_url, '_blank')}
                     >
                       Open GitHub
                     </Button>
@@ -372,19 +371,19 @@ const AgentRunDialog: React.FC<AgentRunDialogProps> = ({
           </Typography>
           
           {/* Planning Statement Preview */}
-          {project.planning_statement && (
+          {project.has_planning_statement && (
             <Alert severity="info" sx={{ mb: 2 }}>
               <Typography variant="body2">
-                <strong>Planning Statement:</strong> {project.planning_statement}
+                <strong>Planning Statement:</strong> Available for this project
               </Typography>
             </Alert>
           )}
 
           {/* Repository Rules Preview */}
-          {project.repository_rules && (
+          {project.has_repository_rules && (
             <Alert severity="warning" sx={{ mb: 2 }}>
               <Typography variant="body2">
-                <strong>Repository Rules:</strong> {project.repository_rules}
+                <strong>Repository Rules:</strong> Active for this project
               </Typography>
             </Alert>
           )}
@@ -428,4 +427,3 @@ const AgentRunDialog: React.FC<AgentRunDialogProps> = ({
 };
 
 export default AgentRunDialog;
-
