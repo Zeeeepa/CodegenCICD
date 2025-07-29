@@ -44,11 +44,10 @@ class ServiceValidator:
             }
             
             async with httpx.AsyncClient(timeout=10.0) as client:
-                # Test with agent runs endpoint instead of organizations
+                # Test with organizations endpoint
                 response = await client.get(
-                    f"https://api.codegen.com/v1/agent-runs",
-                    headers=headers,
-                    params={"limit": 1}
+                    f"https://api.codegen.com/v1/organizations/{org_id}",
+                    headers=headers
                 )
                 
                 response_time = time.time() - start_time
@@ -61,10 +60,9 @@ class ServiceValidator:
                         "response_time": round(response_time * 1000, 2),
                         "details": {
                             "org_id": org_id,
-                            "endpoint_tested": "agent-runs",
+                            "org_name": data.get("name", "Unknown"),
                             "api_version": "v1",
-                            "authenticated": True,
-                            "response_count": len(data.get("data", []))
+                            "authenticated": True
                         }
                     }
                 else:
@@ -224,7 +222,7 @@ class ServiceValidator:
             
             # Test Cloudflare API
             headers = {
-                "X-Auth-Key": api_key,
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             }
             
@@ -380,6 +378,11 @@ async def get_environment_variables():
             "FRONTEND_PORT": os.getenv("FRONTEND_PORT", "3001"),
             "BACKEND_HOST": os.getenv("BACKEND_HOST", "localhost"),
             "FRONTEND_HOST": os.getenv("FRONTEND_HOST", "localhost")
+        },
+        "external_services": {
+            "GRAINCHAIN_URL": os.getenv("GRAINCHAIN_URL", ""),
+            "GRAPH_SITTER_URL": os.getenv("GRAPH_SITTER_URL", ""),
+            "WEB_EVAL_AGENT_URL": os.getenv("WEB_EVAL_AGENT_URL", "")
         }
     }
     

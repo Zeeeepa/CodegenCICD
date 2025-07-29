@@ -206,10 +206,10 @@ const Dashboard: React.FC = () => {
             ) : pinnedProjects.length === 0 ? (
               <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="400px">
                 <Typography variant="h5" gutterBottom>
-                  No Pinned Projects
+                  PINNED
                 </Typography>
                 <Typography variant="body1" color="text.secondary" gutterBottom>
-                  Pin GitHub repositories to your dashboard using the selector above
+                  Select projects from the header dropdown to pin them to your dashboard
                 </Typography>
               </Box>
             ) : (
@@ -322,10 +322,6 @@ const Dashboard: React.FC = () => {
       {/* Header */}
       <AppBar position="static" elevation={1}>
         <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            🚀 CodegenCICD Dashboard
-          </Typography>
-          
           {/* Connection Status */}
           <Chip
             label={isConnected ? 'Connected' : 'Disconnected'}
@@ -334,50 +330,36 @@ const Dashboard: React.FC = () => {
             sx={{ mr: 2 }}
           />
 
-          {/* GitHub Repository Selector - Only show on Projects tab */}
-          {activeTab === 0 && (
-            <FormControl sx={{ minWidth: 200, mr: 2 }}>
-              <InputLabel id="repo-select-label" sx={{ color: 'white' }}>
-                Pin GitHub Repo
-              </InputLabel>
-              <Select
-                labelId="repo-select-label"
-                value=""
-                onChange={(e) => {
-                  const repo = githubRepos.find(r => r.id === Number(e.target.value));
-                  if (repo && !pinnedProjects.find(p => p.id === repo.id)) {
-                    pinProject(repo);
-                  }
-                }}
-                label="Pin GitHub Repo"
-                sx={{ 
-                  color: 'white',
-                  '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.23)' },
-                  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.5)' },
-                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'white' },
-                  '.MuiSvgIcon-root': { color: 'white' }
-                }}
-              >
-                {githubRepos.filter(repo => !pinnedProjects.find(p => p.id === repo.id)).map((repo) => (
-                  <MenuItem key={repo.id} value={repo.id}>
-                    {repo.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-
-          {/* Action Buttons - Only show on Projects tab */}
-          {activeTab === 0 && (
-            <Button
-              color="inherit"
-              startIcon={<RefreshIcon />}
-              onClick={loadGithubRepos}
-              sx={{ mr: 1 }}
+          {/* Project Selector - Always visible */}
+          <FormControl sx={{ minWidth: 250, mr: 2 }}>
+            <InputLabel id="project-select-label" sx={{ color: 'white' }}>
+              Select Project
+            </InputLabel>
+            <Select
+              labelId="project-select-label"
+              value=""
+              onChange={(e) => {
+                const repo = githubRepos.find(r => r.id === Number(e.target.value));
+                if (repo && !pinnedProjects.find(p => p.id === repo.id)) {
+                  pinProject(repo);
+                }
+              }}
+              label="Select Project"
+              sx={{ 
+                color: 'white',
+                '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.23)' },
+                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.5)' },
+                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'white' },
+                '.MuiSvgIcon-root': { color: 'white' }
+              }}
             >
-              Refresh Repos
-            </Button>
-          )}
+              {githubRepos.map((repo) => (
+                <MenuItem key={repo.id} value={repo.id}>
+                  {repo.name} {pinnedProjects.find(p => p.id === repo.id) ? '(Pinned)' : ''}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </Toolbar>
       </AppBar>
 
