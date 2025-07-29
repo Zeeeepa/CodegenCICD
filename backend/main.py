@@ -15,12 +15,18 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 import uvicorn
 
+# Import routers
+from routers.service_validation import router as service_validation_router
+
 # Create FastAPI app
 app = FastAPI(
     title="CodegenCICD Dashboard",
     description="AI-powered CI/CD dashboard with validation pipeline",
     version="1.0.0"
 )
+
+# Include routers
+app.include_router(service_validation_router)
 
 # Add CORS middleware
 app.add_middleware(

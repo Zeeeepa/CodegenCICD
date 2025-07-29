@@ -14,17 +14,46 @@ import {
   Alert,
   Snackbar,
   Chip,
+  Tabs,
+  Tab,
+  Paper,
+  Card,
+  CardContent,
 } from '@mui/material';
 import {
   Add as AddIcon,
   Refresh as RefreshIcon,
   Settings as SettingsIcon,
+  Dashboard as DashboardIcon,
+  Visibility as VisibilityIcon,
+  Security as SecurityIcon,
+  Code as CodeIcon,
+  GitHub as GitHubIcon,
+  Cloud as CloudIcon,
+  Psychology as PsychologyIcon,
 } from '@mui/icons-material';
 import { projectsApi, Project } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
 import ProjectCard from './ProjectCard';
 import CreateProjectDialog from './CreateProjectDialog';
 import ProjectConfigDialog from './ProjectConfigDialog';
+import ServiceValidator from './ServiceValidator';
+import EnvironmentVariables from './EnvironmentVariables';
+import axios from 'axios';
+
+interface GitHubRepository {
+  id: number;
+  name: string;
+  full_name: string;
+  private: boolean;
+  url: string;
+  owner: string;
+  description?: string;
+  updated_at?: string;
+  language?: string;
+  stars?: number;
+  forks?: number;
+}
 
 const Dashboard: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -39,12 +68,16 @@ const Dashboard: React.FC = () => {
     message: '',
     severity: 'success'
   });
+  const [activeTab, setActiveTab] = useState(0);
+  const [githubRepos, setGithubRepos] = useState<GitHubRepository[]>([]);
+  const [reposLoading, setReposLoading] = useState(false);
 
   const { isConnected } = useWebSocket();
 
   // Load projects on component mount
   useEffect(() => {
     loadProjects();
+    loadGithubRepos();
   }, []);
 
   const loadProjects = async () => {
@@ -109,11 +142,202 @@ const Dashboard: React.FC = () => {
     setConfigDialogOpen(true);
   };
 
+  const loadGithubRepos = async () => {
+    try {
+      setReposLoading(true);
+      const response = await axios.get('/api/validation/github-repositories');
+      setGithubRepos(response.data.repositories);
+    } catch (err: any) {
+      console.error('Failed to load GitHub repositories:', err);
+      showSnackbar('Failed to load GitHub repositories', 'error');
+    } finally {
+      setReposLoading(false);
+    }
+  };
+
   const showSnackbar = (message: string, severity: 'success' | 'error') => {
     setSnackbar({ open: true, message, severity });
   };
 
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue);
+  };
+
   const selectedProject = projects.find(p => p.id === selectedProjectId);
+
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 0:
+        return (
+          <Container maxWidth="xl" sx={{ mt: 3 }}>
+            {error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
+
+            {loading ? (
+              <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+                <Typography variant="h6">Loading projects...</Typography>
+              </Box>
+            ) : projects.length === 0 ? (
+              <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="400px">
+                <Typography variant="h5" gutterBottom>
+                  No Projects Found
+                </Typography>
+                <Typography variant="body1" color="text.secondary" gutterBottom>
+                  Get started by creating your first project
+                </Typography>
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={() => setCreateDialogOpen(true)}
+                  sx={{ mt: 2 }}
+                >
+                  Create First Project
+                </Button>
+              </Box>
+            ) : (
+              <Grid container spacing={3}>
+                {projects.map((project) => (
+                  <Grid item xs={12} sm={6} md={4} lg={3} key={project.id}>
+                    <ProjectCard
+                      project={project}
+                      isSelected={project.id === selectedProjectId}
+                      onSelect={() => handleProjectSelect(project.id)}
+                      onUpdate={(data) => handleUpdateProject(project.id, data)}
+                      onDelete={() => handleDeleteProject(project.id)}
+                      onOpenConfig={() => handleOpenConfig(project.id)}
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+            )}
+          </Container>
+        );
+      case 1:
+        return (
+          <Container maxWidth="xl" sx={{ mt: 3 }}>
+            <Grid container spacing={3}>
+              <Grid item xs={12} sm={6} md={3}>
+                <ServiceValidator
+                  serviceName="codegen"
+                  displayName="Codegen API"
+                  icon={<CodeIcon color="primary" />}
+                  autoRefresh={true}
+                  refreshInterval={60000}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <ServiceValidator
+                  serviceName="github"
+                  displayName="GitHub API"
+                  icon={<GitHubIcon color="primary" />}
+                  autoRefresh={true}
+                  refreshInterval={60000}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <ServiceValidator
+                  serviceName="gemini"
+                  displayName="Gemini AI"
+                  icon={<PsychologyIcon color="primary" />}
+                  autoRefresh={true}
+                  refreshInterval={60000}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <ServiceValidator
+                  serviceName="cloudflare"
+                  displayName="Cloudflare"
+                  icon={<CloudIcon color="primary" />}
+                  autoRefresh={true}
+                  refreshInterval={60000}
+                />
+              </Grid>
+            </Grid>
+          </Container>
+        );
+      case 2:
+        return (
+          <Container maxWidth="xl" sx={{ mt: 3 }}>
+            <EnvironmentVariables />
+          </Container>
+        );
+      case 3:
+        return (
+          <Container maxWidth="xl" sx={{ mt: 3 }}>
+            <Paper sx={{ p: 3 }}>
+              <Box display="flex" alignItems="center" justifyContent="between" mb={3}>
+                <Box display="flex" alignItems="center" gap={1}>
+                  <GitHubIcon color="primary" />
+                  <Typography variant="h5">GitHub Repositories</Typography>
+                  <Chip 
+                    label={`${githubRepos.length} repos`} 
+                    size="small" 
+                    color="primary" 
+                  />
+                </Box>
+                <Button
+                  startIcon={<RefreshIcon />}
+                  onClick={loadGithubRepos}
+                  disabled={reposLoading}
+                >
+                  Refresh
+                </Button>
+              </Box>
+              
+              {reposLoading ? (
+                <Box display="flex" justifyContent="center" py={4}>
+                  <Typography>Loading repositories...</Typography>
+                </Box>
+              ) : (
+                <Grid container spacing={2}>
+                  {githubRepos.map((repo) => (
+                    <Grid item xs={12} sm={6} md={4} key={repo.id}>
+                      <Card variant="outlined">
+                        <CardContent>
+                          <Typography variant="h6" gutterBottom>
+                            {repo.name}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary" gutterBottom>
+                            {repo.description || 'No description'}
+                          </Typography>
+                          <Box display="flex" alignItems="center" gap={1} mt={1}>
+                            <Chip 
+                              label={repo.private ? 'Private' : 'Public'} 
+                              size="small" 
+                              color={repo.private ? 'warning' : 'success'}
+                            />
+                            {repo.language && (
+                              <Chip 
+                                label={repo.language} 
+                                size="small" 
+                                variant="outlined"
+                              />
+                            )}
+                          </Box>
+                          <Box display="flex" justifyContent="space-between" mt={2}>
+                            <Typography variant="body2" color="text.secondary">
+                              ⭐ {repo.stars || 0}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              🍴 {repo.forks || 0}
+                            </Typography>
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
+            </Paper>
+          </Container>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <>
@@ -132,109 +356,103 @@ const Dashboard: React.FC = () => {
             sx={{ mr: 2 }}
           />
 
-          {/* Project Selector */}
-          <FormControl sx={{ minWidth: 200, mr: 2 }}>
-            <InputLabel id="project-select-label" sx={{ color: 'white' }}>
-              Select Project
-            </InputLabel>
-            <Select
-              labelId="project-select-label"
-              value={selectedProjectId || ''}
-              onChange={(e) => handleProjectSelect(e.target.value as number)}
-              label="Select Project"
-              sx={{ 
-                color: 'white',
-                '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.23)' },
-                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.5)' },
-                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'white' },
-                '.MuiSvgIcon-root': { color: 'white' }
-              }}
-            >
-              {projects.map((project) => (
-                <MenuItem key={project.id} value={project.id}>
-                  {project.name} ({project.github_owner}/{project.github_repo})
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          {/* Project Selector - Only show on Projects tab */}
+          {activeTab === 0 && (
+            <FormControl sx={{ minWidth: 200, mr: 2 }}>
+              <InputLabel id="project-select-label" sx={{ color: 'white' }}>
+                Select Project
+              </InputLabel>
+              <Select
+                labelId="project-select-label"
+                value={selectedProjectId || ''}
+                onChange={(e) => handleProjectSelect(e.target.value as number)}
+                label="Select Project"
+                sx={{ 
+                  color: 'white',
+                  '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.23)' },
+                  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.5)' },
+                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'white' },
+                  '.MuiSvgIcon-root': { color: 'white' }
+                }}
+              >
+                {projects.map((project) => (
+                  <MenuItem key={project.id} value={project.id}>
+                    {project.name} ({project.github_owner}/{project.github_repo})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
 
-          {/* Action Buttons */}
-          <Button
-            color="inherit"
-            startIcon={<AddIcon />}
-            onClick={() => setCreateDialogOpen(true)}
-            sx={{ mr: 1 }}
-          >
-            Add Project
-          </Button>
-          
-          <Button
-            color="inherit"
-            startIcon={<RefreshIcon />}
-            onClick={loadProjects}
-            sx={{ mr: 1 }}
-          >
-            Refresh
-          </Button>
+          {/* Action Buttons - Only show on Projects tab */}
+          {activeTab === 0 && (
+            <>
+              <Button
+                color="inherit"
+                startIcon={<AddIcon />}
+                onClick={() => setCreateDialogOpen(true)}
+                sx={{ mr: 1 }}
+              >
+                Add Project
+              </Button>
+              
+              <Button
+                color="inherit"
+                startIcon={<RefreshIcon />}
+                onClick={loadProjects}
+                sx={{ mr: 1 }}
+              >
+                Refresh
+              </Button>
 
-          {selectedProject && (
-            <Button
-              color="inherit"
-              startIcon={<SettingsIcon />}
-              onClick={() => handleOpenConfig(selectedProject.id)}
-            >
-              Settings
-            </Button>
+              {selectedProject && (
+                <Button
+                  color="inherit"
+                  startIcon={<SettingsIcon />}
+                  onClick={() => handleOpenConfig(selectedProject.id)}
+                >
+                  Settings
+                </Button>
+              )}
+            </>
           )}
         </Toolbar>
       </AppBar>
 
-      {/* Main Content */}
-      <Container maxWidth="xl" sx={{ mt: 3 }}>
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
+      {/* Navigation Tabs */}
+      <Paper square elevation={0} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+        <Tabs
+          value={activeTab}
+          onChange={handleTabChange}
+          indicatorColor="primary"
+          textColor="primary"
+          variant="fullWidth"
+        >
+          <Tab 
+            icon={<DashboardIcon />} 
+            label="Projects" 
+            iconPosition="start"
+          />
+          <Tab 
+            icon={<SecurityIcon />} 
+            label="Service Status" 
+            iconPosition="start"
+          />
+          <Tab 
+            icon={<VisibilityIcon />} 
+            label="Environment" 
+            iconPosition="start"
+          />
+          <Tab 
+            icon={<GitHubIcon />} 
+            label="GitHub Repos" 
+            iconPosition="start"
+          />
+        </Tabs>
+      </Paper>
 
-        {loading ? (
-          <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-            <Typography variant="h6">Loading projects...</Typography>
-          </Box>
-        ) : projects.length === 0 ? (
-          <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="400px">
-            <Typography variant="h5" gutterBottom>
-              No Projects Found
-            </Typography>
-            <Typography variant="body1" color="text.secondary" gutterBottom>
-              Get started by creating your first project
-            </Typography>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => setCreateDialogOpen(true)}
-              sx={{ mt: 2 }}
-            >
-              Create First Project
-            </Button>
-          </Box>
-        ) : (
-          <Grid container spacing={3}>
-            {projects.map((project) => (
-              <Grid item xs={12} sm={6} md={4} lg={3} key={project.id}>
-                <ProjectCard
-                  project={project}
-                  isSelected={project.id === selectedProjectId}
-                  onSelect={() => handleProjectSelect(project.id)}
-                  onUpdate={(data) => handleUpdateProject(project.id, data)}
-                  onDelete={() => handleDeleteProject(project.id)}
-                  onOpenConfig={() => handleOpenConfig(project.id)}
-                />
-              </Grid>
-            ))}
-          </Grid>
-        )}
-      </Container>
+      {/* Tab Content */}
+      {renderTabContent()}
 
       {/* Dialogs */}
       <CreateProjectDialog
@@ -273,4 +491,3 @@ const Dashboard: React.FC = () => {
 };
 
 export default Dashboard;
-
