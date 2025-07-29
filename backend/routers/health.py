@@ -159,21 +159,13 @@ async def check_grainchain() -> ServiceCheck:
 
 
 async def check_web_eval() -> ServiceCheck:
-    """Check Web-Eval-Agent service"""
-    settings = get_settings()
-    if not settings.web_eval_enabled:
-        return ServiceCheck(status="disabled")
-    
-    return await check_external_service("web-eval-agent", settings.web_eval_url)
+    """Check Web-Eval-Agent service - DISABLED"""
+    return ServiceCheck(status="disabled", message="Web-Eval-Agent service removed")
 
 
 async def check_graph_sitter() -> ServiceCheck:
-    """Check Graph-Sitter service"""
-    settings = get_settings()
-    if not settings.graph_sitter_enabled:
-        return ServiceCheck(status="disabled")
-    
-    return await check_external_service("graph-sitter", settings.graph_sitter_url)
+    """Check Graph-Sitter service - DISABLED"""
+    return ServiceCheck(status="disabled", message="Graph-Sitter service removed")
 
 
 @router.get("/", response_model=HealthStatus)

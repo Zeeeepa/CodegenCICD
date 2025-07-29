@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     # =============================================================================
     cloudflare_api_key: str = Field(env="CLOUDFLARE_API_KEY")
     cloudflare_account_id: str = Field(env="CLOUDFLARE_ACCOUNT_ID")
+    cloudflare_email: str = Field(default="admin@example.com", env="CLOUDFLARE_EMAIL")
     cloudflare_worker_name: str = Field(default="webhook-gateway", env="CLOUDFLARE_WORKER_NAME")
     cloudflare_worker_url: str = Field(env="CLOUDFLARE_WORKER_URL")
     

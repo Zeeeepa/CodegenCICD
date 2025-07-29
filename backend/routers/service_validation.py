@@ -208,6 +208,7 @@ class ServiceValidator:
         try:
             api_key = os.getenv("CLOUDFLARE_API_KEY")
             account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+            email = os.getenv("CLOUDFLARE_EMAIL", "admin@example.com")
             worker_url = os.getenv("CLOUDFLARE_WORKER_URL")
             
             if not api_key or not account_id:
@@ -225,6 +226,7 @@ class ServiceValidator:
             # Test Cloudflare API
             headers = {
                 "X-Auth-Key": api_key,
+                "X-Auth-Email": email,
                 "Content-Type": "application/json"
             }
             

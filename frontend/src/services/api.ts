@@ -37,12 +37,46 @@ api.interceptors.response.use(
 export interface Project {
   id: number;
   name: string;
+  description?: string;
   github_repo: string;
   github_owner: string;
+  github_branch: string;
+  github_url: string;
   webhook_url: string;
+  webhook_active: boolean;
   auto_merge_enabled: boolean;
   auto_confirm_plans: boolean;
+  auto_merge_threshold: number;
+  auto_merge_validated_pr?: boolean;
+  planning_statement?: string;
+  repository_rules?: string;
+  setup_commands?: string;
+  setup_branch?: string;
+  is_active: boolean;
   status: 'active' | 'inactive';
+  validation_enabled: boolean;
+  
+  // Configuration indicators
+  has_repository_rules: boolean;
+  has_setup_commands: boolean;
+  has_secrets: boolean;
+  has_planning_statement: boolean;
+  
+  // Current agent run status
+  current_agent_run?: {
+    id: string;
+    status: 'pending' | 'running' | 'waiting_for_input' | 'completed' | 'failed' | 'cancelled';
+    progress_percentage: number;
+    current_step?: string;
+    run_type: 'regular' | 'plan' | 'pr_creation' | 'error_fix';
+    pr_number?: number;
+    pr_url?: string;
+  };
+  
+  // Recent activity
+  last_run_at?: string;
+  total_runs: number;
+  success_rate: number;
   created_at: string;
   updated_at: string;
 }
@@ -173,4 +207,3 @@ export const validationApi = {
 };
 
 export default api;
-

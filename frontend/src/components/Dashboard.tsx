@@ -5,429 +5,460 @@ import {
   Typography,
   Container,
   Grid,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Button,
   Box,
   Alert,
   Snackbar,
-  Chip,
-  Tabs,
-  Tab,
+  Menu,
+  MenuItem,
+  IconButton,
+  Badge,
+  CircularProgress,
   Paper,
-  Card,
-  CardContent,
+  Stack,
 } from '@mui/material';
 import {
-  Add as AddIcon,
-  Refresh as RefreshIcon,
-  Settings as SettingsIcon,
-  Dashboard as DashboardIcon,
-  Visibility as VisibilityIcon,
-  Security as SecurityIcon,
-  Code as CodeIcon,
   GitHub as GitHubIcon,
-  Cloud as CloudIcon,
-  Psychology as PsychologyIcon,
+  ExpandMore as ExpandMoreIcon,
+  Notifications as NotificationsIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material';
-import { projectsApi, Project } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
-import ProjectCard from './ProjectCard';
-import CreateProjectDialog from './CreateProjectDialog';
-import ProjectConfigDialog from './ProjectConfigDialog';
-import ServiceValidator from './ServiceValidator';
-import EnvironmentVariables from './EnvironmentVariables';
-import axios from 'axios';
+import { EnhancedProjectCard, ProjectData } from './EnhancedProjectCard';
 
+// API interfaces
 interface GitHubRepository {
   id: number;
   name: string;
   full_name: string;
-  private: boolean;
-  url: string;
-  owner: string;
   description?: string;
-  updated_at?: string;
-  language?: string;
-  stars?: number;
-  forks?: number;
+  html_url: string;
+  owner: {
+    login: string;
+  };
+  default_branch: string;
+  is_pinned?: boolean;
+}
+
+interface WebhookNotification {
+  id: string;
+  type: string;
+  repository: string;
+  pr_number?: number;
+  pr_title?: string;
+  pr_url?: string;
+  action?: string;
+  timestamp: string;
+  read: boolean;
 }
 
 const Dashboard: React.FC = () => {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  // State management
+  const [projects, setProjects] = useState<ProjectData[]>([]);
+  const [githubRepos, setGithubRepos] = useState<GitHubRepository[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [configDialogOpen, setConfigDialogOpen] = useState(false);
-  const [configProjectId, setConfigProjectId] = useState<number | null>(null);
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
+  const [reposLoading, setReposLoading] = useState(false);
+  
+  // UI state
+  const [projectMenuAnchor, setProjectMenuAnchor] = useState<null | HTMLElement>(null);
+  const [notifications, setNotifications] = useState<WebhookNotification[]>([]);
+  const [notificationMenuAnchor, setNotificationMenuAnchor] = useState<null | HTMLElement>(null);
+  const [snackbar, setSnackbar] = useState<{
+    open: boolean;
+    message: string;
+    severity: 'success' | 'error' | 'warning' | 'info';
+  }>({
     open: false,
     message: '',
-    severity: 'success'
+    severity: 'info'
   });
-  const [activeTab, setActiveTab] = useState(0);
-  const [githubRepos, setGithubRepos] = useState<GitHubRepository[]>([]);
-  const [reposLoading, setReposLoading] = useState(false);
-  const [pinnedProjects, setPinnedProjects] = useState<GitHubRepository[]>([]);
 
   const { isConnected } = useWebSocket();
 
-  // Load projects on component mount
+  // Load data on component mount
   useEffect(() => {
     loadProjects();
     loadGithubRepos();
-    loadPinnedProjects();
   }, []);
 
-  const loadPinnedProjects = () => {
-    const saved = localStorage.getItem('pinnedProjects');
-    if (saved) {
-      setPinnedProjects(JSON.parse(saved));
-    }
-  };
+  // WebSocket message handler
+  useEffect(() => {
+    // TODO: Set up WebSocket listener for real-time notifications
+    // This would listen for webhook events and update notifications
+  }, []);
 
-  const pinProject = (repo: GitHubRepository) => {
-    const newPinned = [...pinnedProjects, repo];
-    setPinnedProjects(newPinned);
-    localStorage.setItem('pinnedProjects', JSON.stringify(newPinned));
-    showSnackbar(`${repo.name} pinned to dashboard`, 'success');
-  };
-
-  const unpinProject = (repoId: number) => {
-    const newPinned = pinnedProjects.filter(p => p.id !== repoId);
-    setPinnedProjects(newPinned);
-    localStorage.setItem('pinnedProjects', JSON.stringify(newPinned));
-    showSnackbar('Project unpinned from dashboard', 'success');
+  const showSnackbar = (message: string, severity: 'success' | 'error' | 'warning' | 'info' = 'info') => {
+    setSnackbar({ open: true, message, severity });
   };
 
   const loadProjects = async () => {
     try {
       setLoading(true);
-      const response = await projectsApi.getAll();
-      setProjects(response.data);
-      
-      // Auto-select first project if none selected
-      if (response.data.length > 0 && !selectedProjectId) {
-        setSelectedProjectId(response.data[0].id);
+      const response = await fetch('/api/projects');
+      if (response.ok) {
+        const data = await response.json();
+        setProjects(data.projects || []);
+      } else {
+        throw new Error('Failed to load projects');
       }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to load projects');
+    } catch (error) {
+      console.error('Failed to load projects:', error);
       showSnackbar('Failed to load projects', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleProjectSelect = (projectId: number) => {
-    setSelectedProjectId(projectId);
-  };
-
-  const handleCreateProject = async (projectData: Partial<Project>) => {
-    try {
-      const response = await projectsApi.create(projectData);
-      setProjects(prev => [...prev, response.data]);
-      setSelectedProjectId(response.data.id);
-      setCreateDialogOpen(false);
-      showSnackbar('Project created successfully!', 'success');
-    } catch (err: any) {
-      showSnackbar(err.response?.data?.detail || 'Failed to create project', 'error');
-    }
-  };
-
-  const handleUpdateProject = async (projectId: number, projectData: Partial<Project>) => {
-    try {
-      const response = await projectsApi.update(projectId, projectData);
-      setProjects(prev => prev.map(p => p.id === projectId ? response.data : p));
-      showSnackbar('Project updated successfully!', 'success');
-    } catch (err: any) {
-      showSnackbar(err.response?.data?.detail || 'Failed to update project', 'error');
-    }
-  };
-
-  const handleDeleteProject = async (projectId: number) => {
-    try {
-      await projectsApi.delete(projectId);
-      setProjects(prev => prev.filter(p => p.id !== projectId));
-      if (selectedProjectId === projectId) {
-        setSelectedProjectId(projects.length > 1 ? projects.find(p => p.id !== projectId)?.id || null : null);
-      }
-      showSnackbar('Project deleted successfully!', 'success');
-    } catch (err: any) {
-      showSnackbar(err.response?.data?.detail || 'Failed to delete project', 'error');
-    }
-  };
-
-  const handleOpenConfig = (projectId: number) => {
-    setConfigProjectId(projectId);
-    setConfigDialogOpen(true);
-  };
-
   const loadGithubRepos = async () => {
     try {
       setReposLoading(true);
-      const response = await axios.get('/api/validation/github-repositories');
-      setGithubRepos(response.data.repositories);
-    } catch (err: any) {
-      console.error('Failed to load GitHub repositories:', err);
+      const response = await fetch('/api/projects/github-repos');
+      if (response.ok) {
+        const data = await response.json();
+        setGithubRepos(data.repositories || []);
+      } else {
+        throw new Error('Failed to load GitHub repositories');
+      }
+    } catch (error) {
+      console.error('Failed to load GitHub repos:', error);
       showSnackbar('Failed to load GitHub repositories', 'error');
     } finally {
       setReposLoading(false);
     }
   };
 
-  const showSnackbar = (message: string, severity: 'success' | 'error') => {
-    setSnackbar({ open: true, message, severity });
-  };
+  const handleProjectSelect = async (repo: GitHubRepository) => {
+    try {
+      const projectData = {
+        github_id: repo.id,
+        name: repo.name,
+        full_name: repo.full_name,
+        description: repo.description,
+        github_owner: repo.owner.login,
+        github_repo: repo.name,
+        github_url: repo.html_url,
+        default_branch: repo.default_branch
+      };
 
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    setActiveTab(newValue);
-  };
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(projectData)
+      });
 
-  const selectedProject = projects.find(p => p.id === selectedProjectId);
-
-  const renderTabContent = () => {
-    switch (activeTab) {
-      case 0:
-        return (
-          <Container maxWidth="xl" sx={{ mt: 3 }}>
-            {error && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {error}
-              </Alert>
-            )}
-
-            {loading ? (
-              <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-                <Typography variant="h6">Loading projects...</Typography>
-              </Box>
-            ) : pinnedProjects.length === 0 ? (
-              <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="400px">
-                <Typography variant="h5" gutterBottom>
-                  No Pinned Projects
-                </Typography>
-                <Typography variant="body1" color="text.secondary" gutterBottom>
-                  Pin GitHub repositories to your dashboard using the selector above
-                </Typography>
-              </Box>
-            ) : (
-              <Grid container spacing={3}>
-                {pinnedProjects.map((repo) => (
-                  <Grid item xs={12} sm={6} md={4} lg={3} key={repo.id}>
-                    <Card>
-                      <CardContent>
-                        <Box display="flex" justifyContent="space-between" alignItems="start" mb={2}>
-                          <Typography variant="h6" gutterBottom>
-                            {repo.name}
-                          </Typography>
-                          <Button
-                            size="small"
-                            color="error"
-                            onClick={() => unpinProject(repo.id)}
-                          >
-                            Unpin
-                          </Button>
-                        </Box>
-                        <Typography variant="body2" color="text.secondary" gutterBottom>
-                          {repo.description || 'No description available'}
-                        </Typography>
-                        <Box display="flex" alignItems="center" gap={1} mt={2}>
-                          <Chip 
-                            label={repo.private ? 'Private' : 'Public'} 
-                            size="small" 
-                            color={repo.private ? 'warning' : 'success'}
-                          />
-                          {repo.language && (
-                            <Chip 
-                              label={repo.language} 
-                              size="small" 
-                              variant="outlined"
-                            />
-                          )}
-                        </Box>
-                        <Box display="flex" justifyContent="space-between" mt={2}>
-                          <Typography variant="body2" color="text.secondary">
-                            ⭐ {repo.stars || 0}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            🍴 {repo.forks || 0}
-                          </Typography>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                ))}
-              </Grid>
-            )}
-          </Container>
-        );
-      case 1:
-        return (
-          <Container maxWidth="xl" sx={{ mt: 3 }}>
-            <Grid container spacing={3}>
-              <Grid item xs={12} sm={6} md={3}>
-                <ServiceValidator
-                  serviceName="codegen"
-                  displayName="Codegen API"
-                  icon={<CodeIcon color="primary" />}
-                  autoRefresh={true}
-                  refreshInterval={60000}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <ServiceValidator
-                  serviceName="github"
-                  displayName="GitHub API"
-                  icon={<GitHubIcon color="primary" />}
-                  autoRefresh={true}
-                  refreshInterval={60000}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <ServiceValidator
-                  serviceName="gemini"
-                  displayName="Gemini AI"
-                  icon={<PsychologyIcon color="primary" />}
-                  autoRefresh={true}
-                  refreshInterval={60000}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <ServiceValidator
-                  serviceName="cloudflare"
-                  displayName="Cloudflare"
-                  icon={<CloudIcon color="primary" />}
-                  autoRefresh={true}
-                  refreshInterval={60000}
-                />
-              </Grid>
-            </Grid>
-          </Container>
-        );
-      case 2:
-        return (
-          <Container maxWidth="xl" sx={{ mt: 3 }}>
-            <EnvironmentVariables />
-          </Container>
-        );
-      default:
-        return null;
+      if (response.ok) {
+        const data = await response.json();
+        setProjects(prev => [...prev, data.project]);
+        showSnackbar(`${repo.name} added to dashboard`, 'success');
+        
+        // Update the repo list to show it's pinned
+        setGithubRepos(prev => prev.map(r => 
+          r.id === repo.id ? { ...r, is_pinned: true } : r
+        ));
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to add project');
+      }
+    } catch (error) {
+      console.error('Failed to add project:', error);
+      showSnackbar(error instanceof Error ? error.message : 'Failed to add project', 'error');
+    } finally {
+      setProjectMenuAnchor(null);
     }
   };
 
+  const handleProjectUpdate = async (projectId: number, updates: Partial<ProjectData>) => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setProjects(prev => prev.map(p => 
+          p.id === projectId ? data.project : p
+        ));
+        showSnackbar('Project updated successfully', 'success');
+      } else {
+        throw new Error('Failed to update project');
+      }
+    } catch (error) {
+      console.error('Failed to update project:', error);
+      showSnackbar('Failed to update project', 'error');
+    }
+  };
+
+  const handleProjectDelete = async (projectId: number) => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        setProjects(prev => prev.filter(p => p.id !== projectId));
+        showSnackbar('Project removed from dashboard', 'success');
+        
+        // Update GitHub repos list
+        const project = projects.find(p => p.id === projectId);
+        if (project) {
+          setGithubRepos(prev => prev.map(r => 
+            r.id === project.id ? { ...r, is_pinned: false } : r
+          ));
+        }
+      } else {
+        throw new Error('Failed to remove project');
+      }
+    } catch (error) {
+      console.error('Failed to remove project:', error);
+      showSnackbar('Failed to remove project', 'error');
+    }
+  };
+
+  const handleAgentRun = async (projectId: number, targetText: string) => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}/agent-runs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_text: targetText })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        showSnackbar('Agent run started successfully', 'success');
+        
+        // Update project with current agent run
+        setProjects(prev => prev.map(p => 
+          p.id === projectId 
+            ? { ...p, current_agent_run: data.agent_run }
+            : p
+        ));
+      } else {
+        throw new Error('Failed to start agent run');
+      }
+    } catch (error) {
+      console.error('Failed to start agent run:', error);
+      showSnackbar('Failed to start agent run', 'error');
+    }
+  };
+
+  const handleAgentRunContinue = async (projectId: number, runId: number, message: string) => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}/agent-runs/${runId}/continue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message })
+      });
+
+      if (response.ok) {
+        showSnackbar('Agent run continued', 'success');
+        // Refresh project data to get updated run status
+        loadProjects();
+      } else {
+        throw new Error('Failed to continue agent run');
+      }
+    } catch (error) {
+      console.error('Failed to continue agent run:', error);
+      showSnackbar('Failed to continue agent run', 'error');
+    }
+  };
+
+  const handleRunSetupCommands = async (projectId: number) => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}/setup-commands/run`, {
+        method: 'POST'
+      });
+
+      if (response.ok) {
+        showSnackbar('Setup commands execution started', 'success');
+      } else {
+        throw new Error('Failed to run setup commands');
+      }
+    } catch (error) {
+      console.error('Failed to run setup commands:', error);
+      showSnackbar('Failed to run setup commands', 'error');
+    }
+  };
+
+  const unreadNotificationCount = notifications.filter(n => !n.read).length;
+
+  const availableRepos = githubRepos.filter(repo => !repo.is_pinned);
+
   return (
-    <>
+    <Box sx={{ flexGrow: 1 }}>
       {/* Header */}
       <AppBar position="static" elevation={1}>
         <Toolbar>
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            🚀 CodegenCICD Dashboard
+            CodegenCICD Dashboard
           </Typography>
-          
+
+          {/* Project Selector */}
+          <Button
+            color="inherit"
+            startIcon={<GitHubIcon />}
+            endIcon={<ExpandMoreIcon />}
+            onClick={(e) => setProjectMenuAnchor(e.currentTarget)}
+            disabled={reposLoading}
+          >
+            {reposLoading ? 'Loading...' : 'Select Project'}
+          </Button>
+
+          {/* Notifications */}
+          <IconButton
+            color="inherit"
+            onClick={(e) => setNotificationMenuAnchor(e.currentTarget)}
+          >
+            <Badge badgeContent={unreadNotificationCount} color="error">
+              <NotificationsIcon />
+            </Badge>
+          </IconButton>
+
+          {/* Refresh */}
+          <IconButton
+            color="inherit"
+            onClick={() => {
+              loadProjects();
+              loadGithubRepos();
+            }}
+          >
+            <RefreshIcon />
+          </IconButton>
+
           {/* Connection Status */}
-          <Chip
-            label={isConnected ? 'Connected' : 'Disconnected'}
-            color={isConnected ? 'success' : 'error'}
-            size="small"
-            sx={{ mr: 2 }}
-          />
-
-          {/* GitHub Repository Selector - Only show on Projects tab */}
-          {activeTab === 0 && (
-            <FormControl sx={{ minWidth: 200, mr: 2 }}>
-              <InputLabel id="repo-select-label" sx={{ color: 'white' }}>
-                Pin GitHub Repo
-              </InputLabel>
-              <Select
-                labelId="repo-select-label"
-                value=""
-                onChange={(e) => {
-                  const repo = githubRepos.find(r => r.id === Number(e.target.value));
-                  if (repo && !pinnedProjects.find(p => p.id === repo.id)) {
-                    pinProject(repo);
-                  }
-                }}
-                label="Pin GitHub Repo"
-                sx={{ 
-                  color: 'white',
-                  '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.23)' },
-                  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255, 255, 255, 0.5)' },
-                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'white' },
-                  '.MuiSvgIcon-root': { color: 'white' }
-                }}
-              >
-                {githubRepos.filter(repo => !pinnedProjects.find(p => p.id === repo.id)).map((repo) => (
-                  <MenuItem key={repo.id} value={repo.id}>
-                    {repo.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-
-          {/* Action Buttons - Only show on Projects tab */}
-          {activeTab === 0 && (
-            <Button
-              color="inherit"
-              startIcon={<RefreshIcon />}
-              onClick={loadGithubRepos}
-              sx={{ mr: 1 }}
-            >
-              Refresh Repos
-            </Button>
-          )}
+          <Box sx={{ ml: 2, display: 'flex', alignItems: 'center' }}>
+            <Box
+              sx={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                backgroundColor: isConnected ? 'success.main' : 'error.main',
+                mr: 1
+              }}
+            />
+            <Typography variant="body2">
+              {isConnected ? 'Connected' : 'Disconnected'}
+            </Typography>
+          </Box>
         </Toolbar>
       </AppBar>
 
-      {/* Navigation Tabs */}
-      <Paper square elevation={0} sx={{ borderBottom: 1, borderColor: 'divider' }}>
-        <Tabs
-          value={activeTab}
-          onChange={handleTabChange}
-          indicatorColor="primary"
-          textColor="primary"
-          variant="fullWidth"
-        >
-          <Tab 
-            icon={<DashboardIcon />} 
-            label="Projects" 
-            iconPosition="start"
-          />
-          <Tab 
-            icon={<SecurityIcon />} 
-            label="Service Status" 
-            iconPosition="start"
-          />
-          <Tab 
-            icon={<VisibilityIcon />} 
-            label="Environment" 
-            iconPosition="start"
-          />
-        </Tabs>
-      </Paper>
+      {/* Project Selection Menu */}
+      <Menu
+        anchorEl={projectMenuAnchor}
+        open={Boolean(projectMenuAnchor)}
+        onClose={() => setProjectMenuAnchor(null)}
+        PaperProps={{
+          sx: { maxHeight: 400, width: 350 }
+        }}
+      >
+        {availableRepos.length === 0 ? (
+          <MenuItem disabled>
+            <Typography color="text.secondary">
+              {reposLoading ? 'Loading repositories...' : 'No available repositories'}
+            </Typography>
+          </MenuItem>
+        ) : (
+          availableRepos.map((repo) => (
+            <MenuItem
+              key={repo.id}
+              onClick={() => handleProjectSelect(repo)}
+            >
+              <Box>
+                <Typography variant="subtitle2">{repo.name}</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {repo.full_name}
+                </Typography>
+                {repo.description && (
+                  <Typography variant="caption" color="text.secondary">
+                    {repo.description.length > 60 
+                      ? `${repo.description.substring(0, 60)}...` 
+                      : repo.description
+                    }
+                  </Typography>
+                )}
+              </Box>
+            </MenuItem>
+          ))
+        )}
+      </Menu>
 
-      {/* Tab Content */}
-      {renderTabContent()}
+      {/* Notifications Menu */}
+      <Menu
+        anchorEl={notificationMenuAnchor}
+        open={Boolean(notificationMenuAnchor)}
+        onClose={() => setNotificationMenuAnchor(null)}
+        PaperProps={{
+          sx: { maxHeight: 400, width: 400 }
+        }}
+      >
+        {notifications.length === 0 ? (
+          <MenuItem disabled>
+            <Typography color="text.secondary">No notifications</Typography>
+          </MenuItem>
+        ) : (
+          notifications.slice(0, 10).map((notification) => (
+            <MenuItem key={notification.id}>
+              <Box>
+                <Typography variant="subtitle2">
+                  {notification.type === 'pull_request' && 'PR '}
+                  {notification.action} in {notification.repository}
+                </Typography>
+                {notification.pr_title && (
+                  <Typography variant="body2" color="text.secondary">
+                    #{notification.pr_number}: {notification.pr_title}
+                  </Typography>
+                )}
+                <Typography variant="caption" color="text.secondary">
+                  {new Date(notification.timestamp).toLocaleString()}
+                </Typography>
+              </Box>
+            </MenuItem>
+          ))
+        )}
+      </Menu>
 
-      {/* Dialogs */}
-      <CreateProjectDialog
-        open={createDialogOpen}
-        onClose={() => setCreateDialogOpen(false)}
-        onCreate={handleCreateProject}
-      />
-
-      {configProjectId && (
-        <ProjectConfigDialog
-          open={configDialogOpen}
-          onClose={() => {
-            setConfigDialogOpen(false);
-            setConfigProjectId(null);
-          }}
-          projectId={configProjectId}
-        />
-      )}
+      {/* Main Content */}
+      <Container maxWidth="xl" sx={{ mt: 3, mb: 3 }}>
+        {loading ? (
+          <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+            <CircularProgress />
+          </Box>
+        ) : projects.length === 0 ? (
+          <Paper sx={{ p: 4, textAlign: 'center' }}>
+            <Typography variant="h6" gutterBottom>
+              No Projects Pinned
+            </Typography>
+            <Typography variant="body1" color="text.secondary" gutterBottom>
+              Select a GitHub project from the header dropdown to add it to your dashboard.
+            </Typography>
+            <Button
+              variant="contained"
+              startIcon={<GitHubIcon />}
+              onClick={(e) => setProjectMenuAnchor(e.currentTarget)}
+              sx={{ mt: 2 }}
+            >
+              Select Project
+            </Button>
+          </Paper>
+        ) : (
+          <Grid container spacing={3}>
+            {projects.map((project) => (
+              <Grid item xs={12} md={6} lg={4} key={project.id}>
+                <EnhancedProjectCard
+                  project={project}
+                  onAgentRun={handleAgentRun}
+                  onAgentRunContinue={handleAgentRunContinue}
+                  onUpdateProject={handleProjectUpdate}
+                  onDeleteProject={handleProjectDelete}
+                  onRunSetupCommands={handleRunSetupCommands}
+                />
+              </Grid>
+            ))}
+          </Grid>
+        )}
+      </Container>
 
       {/* Snackbar for notifications */}
       <Snackbar
@@ -443,7 +474,7 @@ const Dashboard: React.FC = () => {
           {snackbar.message}
         </Alert>
       </Snackbar>
-    </>
+    </Box>
   );
 };
 
