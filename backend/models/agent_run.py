@@ -31,7 +31,7 @@ class AgentRun(BaseModel):
     """Agent run model representing a Codegen API agent execution"""
     __tablename__ = "agent_runs"
     
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
     
     # Agent run identification
     codegen_run_id = Column(String(255), unique=True, index=True)  # Codegen API run ID
@@ -106,7 +106,7 @@ class AgentRunStep(BaseModel):
     """Individual steps within an agent run"""
     __tablename__ = "agent_run_steps"
     
-    agent_run_id = Column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False)
+    agent_run_id = Column(Integer, ForeignKey("agent_runs.id"), nullable=False)
     
     # Step information
     step_number = Column(Integer, nullable=False)
@@ -138,7 +138,7 @@ class AgentRunResponse(BaseModel):
     """Responses from agent runs (for conversation-like interactions)"""
     __tablename__ = "agent_run_responses"
     
-    agent_run_id = Column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False)
+    agent_run_id = Column(Integer, ForeignKey("agent_runs.id"), nullable=False)
     
     # Response sequencing
     sequence_number = Column(Integer, nullable=False)
@@ -165,4 +165,3 @@ class AgentRunResponse(BaseModel):
     
     def __repr__(self) -> str:
         return f"<AgentRunResponse(agent_run_id={self.agent_run_id}, seq={self.sequence_number}, type={self.response_type})>"
-

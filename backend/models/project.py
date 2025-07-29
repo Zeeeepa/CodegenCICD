@@ -1,126 +1,144 @@
 """
-Project-related database models
+Project model for GitHub project management
 """
-from typing import Dict, Any, Optional, List
-from sqlalchemy import Column, String, Text, Boolean, JSON, ForeignKey, Integer
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, JSON, ForeignKey
 from sqlalchemy.orm import relationship
-from .base import BaseModel
+from sqlalchemy.sql import func
+from backend.database import Base
 
 
-class Project(BaseModel):
-    """Project model representing a GitHub repository and its CI/CD configuration"""
+class Project(Base):
+    """GitHub project model"""
     __tablename__ = "projects"
-    
-    # Basic project information
+
+    id = Column(Integer, primary_key=True, index=True)
+    github_id = Column(Integer, unique=True, index=True)  # GitHub repository ID
     name = Column(String(255), nullable=False, index=True)
+    full_name = Column(String(500), nullable=False)  # owner/repo
     description = Column(Text)
-    
-    # GitHub repository information
     github_owner = Column(String(255), nullable=False)
     github_repo = Column(String(255), nullable=False)
-    github_branch = Column(String(255), default="main", nullable=False)
+    github_branch = Column(String(255), default="main")
     github_url = Column(String(500), nullable=False)
     
     # Webhook configuration
+    webhook_active = Column(Boolean, default=False)
     webhook_url = Column(String(500))
     webhook_secret = Column(String(255))
-    webhook_active = Column(Boolean, default=True, nullable=False)
     
-    # Project status and settings
-    is_active = Column(Boolean, default=True, nullable=False)
-    auto_merge_enabled = Column(Boolean, default=False, nullable=False)
-    auto_merge_threshold = Column(Integer, default=80)  # Confidence threshold for auto-merge
+    # Project settings
+    auto_merge_enabled = Column(Boolean, default=False)
+    auto_confirm_plans = Column(Boolean, default=False)
+    auto_merge_threshold = Column(Integer, default=80)  # Validation score threshold
     
-    # Configuration tier (basic, intermediate, advanced)
-    config_tier = Column(String(50), default="basic", nullable=False)
+    # Status
+    is_active = Column(Boolean, default=True)
+    status = Column(String(50), default="active")  # active, paused, archived
+    validation_enabled = Column(Boolean, default=True)
+    
+    # Visual indicators for settings
+    has_repository_rules = Column(Boolean, default=False)
+    has_setup_commands = Column(Boolean, default=False)
+    has_secrets = Column(Boolean, default=False)
+    has_planning_statement = Column(Boolean, default=False)
+    
+    # Statistics
+    total_runs = Column(Integer, default=0)
+    success_rate = Column(Integer, default=0)  # Percentage
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    settings = relationship("ProjectSettings", back_populates="project", uselist=False)
+    agent_runs = relationship("AgentRun", back_populates="project")
+    validation_runs = relationship("ValidationRun", back_populates="project")
+    
+    def __repr__(self):
+        return f"<Project(id={self.id}, name='{self.name}', owner='{self.github_owner}')>"
+
+
+class ProjectSettings(Base):
+    """Project-specific settings"""
+    __tablename__ = "project_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), unique=True)
+    
+    # Repository rules
+    repository_rules = Column(Text)  # Additional rules for the agent
+    
+    # Setup commands
+    setup_commands = Column(Text)  # Commands to run in sandbox
+    setup_branch = Column(String(255), default="main")  # Branch for setup commands
+    
+    # Planning statement
+    planning_statement = Column(Text)  # Pre-prompt for agent runs
+    
+    # Environment variables/secrets (encrypted)
+    secrets = Column(JSON)  # Encrypted key-value pairs
     
     # Validation settings
-    validation_enabled = Column(Boolean, default=True, nullable=False)
-    grainchain_enabled = Column(Boolean, default=True, nullable=False)
-    web_eval_enabled = Column(Boolean, default=True, nullable=False)
-    graph_sitter_enabled = Column(Boolean, default=True, nullable=False)
+    validation_timeout = Column(Integer, default=1800)  # 30 minutes
+    max_validation_retries = Column(Integer, default=3)
     
-    # Metadata
-    metadata = Column(JSON, default=dict)
+    # Deployment settings
+    deployment_commands = Column(Text)  # Commands for deployment validation
+    health_check_url = Column(String(500))  # URL to check if deployment is healthy
     
-    # Relationships
-    configurations = relationship("ProjectConfiguration", back_populates="project", cascade="all, delete-orphan")
-    secrets = relationship("ProjectSecret", back_populates="project", cascade="all, delete-orphan")
-    agent_runs = relationship("AgentRun", back_populates="project", cascade="all, delete-orphan")
-    validation_runs = relationship("ValidationRun", back_populates="project", cascade="all, delete-orphan")
-    
-    def __repr__(self) -> str:
-        return f"<Project(name={self.name}, github={self.github_owner}/{self.github_repo})>"
-    
-    @property
-    def full_github_name(self) -> str:
-        """Get full GitHub repository name"""
-        return f"{self.github_owner}/{self.github_repo}"
-    
-    @property
-    def github_clone_url(self) -> str:
-        """Get GitHub clone URL"""
-        return f"https://github.com/{self.github_owner}/{self.github_repo}.git"
-    
-    def get_configuration(self, config_type: str) -> Optional["ProjectConfiguration"]:
-        """Get specific configuration by type"""
-        for config in self.configurations:
-            if config.config_type == config_type:
-                return config
-        return None
-    
-    def get_secret(self, secret_name: str) -> Optional["ProjectSecret"]:
-        """Get specific secret by name"""
-        for secret in self.secrets:
-            if secret.name == secret_name:
-                return secret
-        return None
-
-
-class ProjectConfiguration(BaseModel):
-    """Project configuration for different aspects (repository rules, setup commands, etc.)"""
-    __tablename__ = "project_configurations"
-    
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
-    
-    # Configuration type (repository_rules, setup_commands, planning_statement, etc.)
-    config_type = Column(String(100), nullable=False, index=True)
-    
-    # Configuration content
-    content = Column(Text, nullable=False)
-    
-    # Configuration metadata
-    is_active = Column(Boolean, default=True, nullable=False)
-    version = Column(Integer, default=1, nullable=False)
-    metadata = Column(JSON, default=dict)
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    project = relationship("Project", back_populates="configurations")
+    project = relationship("Project", back_populates="settings")
     
-    def __repr__(self) -> str:
-        return f"<ProjectConfiguration(project_id={self.project_id}, type={self.config_type})>"
+    def __repr__(self):
+        return f"<ProjectSettings(id={self.id}, project_id={self.project_id})>"
 
 
-class ProjectSecret(BaseModel):
-    """Encrypted secrets for projects"""
-    __tablename__ = "project_secrets"
+class ValidationRun(Base):
+    """Validation run tracking"""
+    __tablename__ = "validation_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"))
+    agent_run_id = Column(Integer, ForeignKey("agent_runs.id"), nullable=True)
     
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
+    # PR information
+    pr_number = Column(Integer)
+    pr_url = Column(String(500))
+    pr_branch = Column(String(255))
+    commit_sha = Column(String(255))
     
-    # Secret information
-    name = Column(String(255), nullable=False, index=True)
-    encrypted_value = Column(Text, nullable=False)  # Encrypted with Fernet
-    description = Column(Text)
+    # Validation status
+    status = Column(String(50), default="pending")  # pending, running, success, failed, cancelled
+    validation_score = Column(Integer, default=0)  # 0-100
     
-    # Secret metadata
-    is_active = Column(Boolean, default=True, nullable=False)
-    last_used_at = Column(String(50))  # ISO timestamp as string
-    metadata = Column(JSON, default=dict)
+    # Validation steps
+    snapshot_created = Column(Boolean, default=False)
+    code_cloned = Column(Boolean, default=False)
+    deployment_successful = Column(Boolean, default=False)
+    ui_tests_passed = Column(Boolean, default=False)
+    
+    # Results
+    deployment_logs = Column(Text)
+    validation_logs = Column(Text)
+    error_context = Column(Text)
+    
+    # Retry tracking
+    retry_count = Column(Integer, default=0)
+    max_retries = Column(Integer, default=3)
+    
+    # Timestamps
+    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True))
     
     # Relationships
-    project = relationship("Project", back_populates="secrets")
+    project = relationship("Project", back_populates="validation_runs")
+    agent_run = relationship("AgentRun", back_populates="validation_runs")
     
-    def __repr__(self) -> str:
-        return f"<ProjectSecret(project_id={self.project_id}, name={self.name})>"
+    def __repr__(self):
+        return f"<ValidationRun(id={self.id}, project_id={self.project_id}, status='{self.status}')>"
 
