@@ -44,9 +44,11 @@ class ServiceValidator:
             }
             
             async with httpx.AsyncClient(timeout=10.0) as client:
+                # Test with agent runs endpoint instead of organizations
                 response = await client.get(
-                    f"https://api.codegen.com/v1/organizations/{org_id}",
-                    headers=headers
+                    f"https://api.codegen.com/v1/agent-runs",
+                    headers=headers,
+                    params={"limit": 1}
                 )
                 
                 response_time = time.time() - start_time
@@ -59,9 +61,10 @@ class ServiceValidator:
                         "response_time": round(response_time * 1000, 2),
                         "details": {
                             "org_id": org_id,
-                            "org_name": data.get("name", "Unknown"),
+                            "endpoint_tested": "agent-runs",
                             "api_version": "v1",
-                            "authenticated": True
+                            "authenticated": True,
+                            "response_count": len(data.get("data", []))
                         }
                     }
                 else:
@@ -168,8 +171,8 @@ class ServiceValidator:
             # Configure Gemini
             genai.configure(api_key=gemini_api_key)
             
-            # Test with a simple request
-            model = genai.GenerativeModel('gemini-pro')
+            # Test with a simple request using the current model name
+            model = genai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content("Hello, this is a test. Please respond with 'API working'.")
             
             response_time = time.time() - start_time
@@ -180,7 +183,7 @@ class ServiceValidator:
                 "response_time": round(response_time * 1000, 2),
                 "details": {
                     "api_key_format_valid": api_key_format_valid,
-                    "model": "gemini-pro",
+                    "model": "gemini-1.5-flash",
                     "test_response": response.text[:100] if response.text else "No response",
                     "authenticated": True
                 }
@@ -221,7 +224,7 @@ class ServiceValidator:
             
             # Test Cloudflare API
             headers = {
-                "Authorization": f"Bearer {api_key}",
+                "X-Auth-Key": api_key,
                 "Content-Type": "application/json"
             }
             
@@ -377,11 +380,6 @@ async def get_environment_variables():
             "FRONTEND_PORT": os.getenv("FRONTEND_PORT", "3001"),
             "BACKEND_HOST": os.getenv("BACKEND_HOST", "localhost"),
             "FRONTEND_HOST": os.getenv("FRONTEND_HOST", "localhost")
-        },
-        "external_services": {
-            "GRAINCHAIN_URL": os.getenv("GRAINCHAIN_URL", ""),
-            "GRAPH_SITTER_URL": os.getenv("GRAPH_SITTER_URL", ""),
-            "WEB_EVAL_AGENT_URL": os.getenv("WEB_EVAL_AGENT_URL", "")
         }
     }
     
@@ -390,6 +388,32 @@ async def get_environment_variables():
         "timestamp": time.time(),
         "total_variables": sum(len(category) for category in env_vars.values())
     }
+
+@router.put("/environment/{variable_name}")
+async def update_environment_variable(variable_name: str, value: dict):
+    """Update an environment variable"""
+    try:
+        new_value = value.get("value", "")
+        
+        # Set the environment variable
+        os.environ[variable_name] = new_value
+        
+        # In a production environment, you might want to persist this to a .env file
+        # For now, we'll just update the runtime environment
+        
+        return {
+            "success": True,
+            "message": f"Environment variable {variable_name} updated successfully",
+            "variable": variable_name,
+            "value": new_value,
+            "timestamp": time.time()
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update environment variable: {str(e)}"
+        )
 
 @router.get("/github-repositories")
 async def get_github_repositories():
