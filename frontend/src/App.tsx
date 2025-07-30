@@ -1,8 +1,9 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { Container, CssBaseline } from '@mui/material';
+import { CssBaseline } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles';
-import Dashboard from './components/Dashboard';
+import CICDDashboard from './components/CICDDashboard';
+import CodegenExample from './components/CodegenExample';
 import { WebSocketProvider } from './hooks/useWebSocket';
 import darkTheme from './theme/darkTheme';
 
@@ -12,11 +13,10 @@ function App() {
       <CssBaseline />
       <WebSocketProvider>
         <Router>
-          <Container maxWidth="xl" sx={{ py: 2 }}>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-            </Routes>
-          </Container>
+          <Routes>
+            <Route path="/" element={<CICDDashboard />} />
+            <Route path="/codegen-example" element={<CodegenExample />} />
+          </Routes>
         </Router>
       </WebSocketProvider>
     </ThemeProvider>

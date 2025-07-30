@@ -1,0 +1,162 @@
+# Core FastAPI and web framework dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+gunicorn==21.2.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Database and ORM
+sqlalchemy==2.0.23
+alembic==1.13.1
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+
+# Authentication and security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+cryptography==41.0.8
+
+# HTTP client and networking
+httpx==0.25.2
+aiohttp==3.9.1
+websockets==12.0
+
+# Caching and session management
+redis==5.0.1
+aioredis==2.0.1
+
+# Monitoring and observability
+prometheus-client==0.19.0
+structlog==23.2.0
+opentelemetry-api==1.21.0
+opentelemetry-sdk==1.21.0
+opentelemetry-instrumentation-fastapi==0.42b0
+
+# File handling and utilities
+aiofiles==23.2.1
+python-dotenv==1.0.0
+click==8.1.7
+rich==13.7.0
+
+# Date and time handling
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Data validation and serialization
+marshmallow==3.20.2
+jsonschema==4.20.0
+
+# Testing dependencies (for development)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+httpx==0.25.2  # For testing HTTP clients
+
+# Development tools
+black==23.11.0
+isort==5.12.0
+flake8==6.1.0
+mypy==1.7.1
+
+# Production server
+gunicorn==21.2.0
+
+# ============================================
+# INTEGRATED LIBRARY DEPENDENCIES
+# ============================================
+
+# Grainchain - Sandbox management and code execution
+# Note: Install from git repository as it may not be on PyPI
+# grainchain>=1.0.0
+
+# Graph-sitter - Code analysis and manipulation
+# Note: Install from git repository as it may not be on PyPI  
+# graph-sitter>=1.0.0
+
+# Codegen API Client - Agent orchestration
+# Note: Install from git repository as it may not be on PyPI
+# codegen-api-client>=1.0.0
+
+# Web-eval-agent dependencies
+# Note: Web-eval-agent is installed via uvx, but we need its dependencies
+playwright>=1.40.0
+browser-use>=1.0.0
+
+# Additional dependencies for integrated libraries
+# Tree-sitter for code parsing (used by graph-sitter)
+tree-sitter>=0.20.0
+
+# Jupyter and notebook support (for graph-sitter)
+jupyter>=1.0.0
+ipython>=8.0.0
+
+# Machine learning and AI dependencies
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Additional async utilities
+asyncio-mqtt>=0.13.0
+aioprocessing>=2.0.1
+
+# Container and virtualization support
+docker>=6.1.0
+
+# Git operations
+GitPython>=3.1.40
+
+# Environment and configuration management
+python-decouple==3.8
+environs==10.0.0
+
+# Logging enhancements
+loguru==0.7.2
+colorlog==6.8.0
+
+# Performance monitoring
+psutil==5.9.6
+memory-profiler==0.61.0
+
+# Network and protocol support
+paramiko==3.3.1  # For SSH operations
+requests>=2.31.0
+
+# Data processing and analysis
+jinja2>=3.1.2
+pyyaml>=6.0.1
+toml>=0.10.2
+
+# Concurrency and parallel processing
+concurrent-futures>=3.1.1
+multiprocessing-logging>=0.3.4
+
+# Security enhancements
+bcrypt>=4.1.2
+argon2-cffi>=23.1.0
+
+# API documentation
+sphinx>=7.2.6
+sphinx-rtd-theme>=1.3.0
+
+# ============================================
+# INSTALLATION NOTES
+# ============================================
+
+# To install the integrated libraries from git repositories:
+# 
+# pip install git+https://github.com/Zeeeepa/grainchain.git
+# pip install git+https://github.com/Zeeeepa/graph-sitter.git  
+# pip install git+https://github.com/Zeeeepa/codegen-api-client.git
+#
+# For web-eval-agent, install via uvx:
+# uvx --from git+https://github.com/Zeeeepa/web-eval-agent.git webEvalAgent
+#
+# Make sure to set the required environment variables:
+# - CODEGEN_ORG_ID=323
+# - CODEGEN_API_TOKEN=sk-ce027fa7-3c8d-4beb-8c86-ed8ae982ac99
+# - GEMINI_API_KEY=AIzaSyBXmhlHudrD4zXiv-5fjxi1gGG-_kdtaZ0
+# - GITHUB_TOKEN=your-github-token-here
+# - CLOUDFLARE_API_KEY=eae82cf159577a8838cc83612104c09c5a0d6
+# - CLOUDFLARE_ACCOUNT_ID=2b2a1d3effa7f7fe4fe2a8c4e48681e3
+# - CLOUDFLARE_WORKER_NAME=webhook-gateway
+# - CLOUDFLARE_WORKER_URL=https://webhook-gateway.pixeliumperfecto.workers.dev
