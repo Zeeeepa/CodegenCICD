@@ -18,6 +18,9 @@ PyGithub>=2.1.0
 # AI services
 google-generativeai>=0.3.0
 
+# Sandbox management
+grainchain>=0.1.0
+
 # Utilities
 click>=8.1.0
 python-dateutil>=2.8.0
