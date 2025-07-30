@@ -1,0 +1,231 @@
+# Production requirements for CodegenCICD
+# Core framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+gunicorn==21.2.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Database
+sqlalchemy[asyncio]==2.0.23
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+alembic==1.13.1
+
+# Redis and caching
+redis==5.0.1
+aioredis==2.0.1
+
+# Task queue
+celery==5.3.4
+flower==2.0.1
+
+# HTTP client
+httpx==0.25.2
+aiohttp==3.9.1
+
+# Authentication and security
+pyjwt==2.8.0
+bcrypt==4.1.2
+cryptography==41.0.8
+python-multipart==0.0.6
+
+# Monitoring and observability
+prometheus-client==0.19.0
+structlog==23.2.0
+python-json-logger==2.0.7
+
+# Browser automation
+playwright==1.40.0
+browser-use==0.1.20
+langchain-google-genai==1.0.10
+
+# System monitoring
+psutil==5.9.6
+
+# Configuration
+python-dotenv==1.0.0
+pyyaml==6.0.1
+
+# Validation and serialization
+marshmallow==3.20.2
+jsonschema==4.20.0
+
+# Date and time
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Utilities
+click==8.1.7
+rich==13.7.0
+typer==0.9.0
+
+# Development and testing (optional in production)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+black==23.11.0
+isort==5.12.0
+flake8==6.1.0
+mypy==1.7.1
+
+# Production-specific
+sentry-sdk[fastapi]==1.38.0  # Error tracking
+newrelic==9.2.0  # APM (optional)
+ddtrace==2.3.0   # DataDog tracing (optional)
+
+# Security scanning
+bandit==1.7.5
+safety==2.3.5
+
+# Performance
+orjson==3.9.10  # Faster JSON serialization
+ujson==5.8.0    # Alternative JSON library
+
+# Networking
+dnspython==2.4.2
+certifi==2023.11.17
+
+# File handling
+aiofiles==23.2.1
+
+# Templating (if needed)
+jinja2==3.1.2
+
+# Email (if needed)
+aiosmtplib==3.0.1
+email-validator==2.1.0
+
+# Image processing (if needed)
+pillow==10.1.0
+
+# Data processing
+pandas==2.1.4  # If data analysis is needed
+numpy==1.25.2   # If numerical processing is needed
+
+# Async utilities
+asyncio-mqtt==0.16.1  # If MQTT is needed
+websockets==12.0      # If WebSocket support is needed
+
+# Caching
+cachetools==5.3.2
+
+# Rate limiting
+slowapi==0.1.9
+
+# CORS
+fastapi-cors==0.0.6
+
+# Health checks
+fastapi-health==0.4.0
+
+# OpenAPI/Swagger
+fastapi-swagger-ui==0.1.0
+
+# Middleware
+starlette-prometheus==0.9.0
+
+# Background tasks
+apscheduler==3.10.4
+
+# File uploads
+python-multipart==0.0.6
+
+# Environment detection
+distro==1.8.0
+
+# Process management
+supervisor==4.2.5  # For process management in containers
+
+# Logging
+loguru==0.7.2  # Alternative to structlog
+
+# Configuration management
+dynaconf==3.2.4  # Advanced configuration management
+
+# Database migrations
+yoyo-migrations==8.2.0  # Alternative to Alembic
+
+# API documentation
+sphinx==7.2.6  # If documentation generation is needed
+sphinx-rtd-theme==1.3.0
+
+# Performance profiling
+py-spy==0.3.14  # Production profiler
+memory-profiler==0.61.0
+
+# Container health
+docker==6.1.3  # If Docker API interaction is needed
+
+# Kubernetes integration (if deploying to K8s)
+kubernetes==28.1.0
+
+# Cloud provider SDKs (uncomment as needed)
+# boto3==1.34.0        # AWS
+# google-cloud==0.34.0 # Google Cloud
+# azure-sdk==1.0.0     # Azure
+
+# Message queues (alternatives to Redis)
+# pika==1.3.2          # RabbitMQ
+# aiokafka==0.8.11     # Kafka
+
+# Time series databases (if needed)
+# influxdb-client==1.38.0
+# prometheus-api-client==0.5.3
+
+# Search engines (if needed)
+# elasticsearch==8.11.0
+# opensearch-py==2.4.0
+
+# Graph databases (if needed)
+# neo4j==5.14.1
+
+# Machine learning (if AI features are needed)
+# scikit-learn==1.3.2
+# torch==2.1.1
+# transformers==4.36.0
+
+# Natural language processing
+# spacy==3.7.2
+# nltk==3.8.1
+
+# Computer vision (if image processing is needed)
+# opencv-python==4.8.1.78
+
+# Geospatial (if location features are needed)
+# geopandas==0.14.1
+# shapely==2.0.2
+
+# Blockchain (if Web3 features are needed)
+# web3==6.12.0
+# eth-account==0.10.0
+
+# Cryptography extensions
+# pynacl==1.5.0
+# pyopenssl==23.3.0
+
+# Network protocols
+# paramiko==3.4.0  # SSH
+# ftputil==5.0.4   # FTP
+
+# Data validation
+# cerberus==1.3.5
+# voluptuous==0.14.1
+
+# Serialization formats
+# msgpack==1.0.7
+# protobuf==4.25.1
+# avro==1.11.3
+
+# Compression
+# lz4==4.3.2
+# zstandard==0.22.0
+
+# Concurrency
+# gevent==23.9.1
+# eventlet==0.33.3
+
+# Memory optimization
+# pympler==0.9  # Memory profiling
+# objgraph==3.6.0  # Object reference tracking
+

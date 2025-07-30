@@ -1,343 +1,255 @@
 """
-Monitoring router for CodegenCICD Dashboard
+Monitoring and health check endpoints
 """
-from fastapi import APIRouter, HTTPException, Depends
-from typing import Dict, Any, List
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import PlainTextResponse
 import structlog
-import psutil
-import time
-from datetime import datetime, timedelta
 
-from backend.config import get_settings
-from backend.database import check_db_health
+from backend.core.monitoring import (
+    health_checker, get_metrics_response, metrics_collector
+)
+from backend.core.security import get_current_user, require_role, UserRole, TokenData
 
 logger = structlog.get_logger(__name__)
-settings = get_settings()
 
-router = APIRouter()
+router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
 
-@router.get("/metrics")
-async def get_metrics() -> Dict[str, Any]:
-    """Get system metrics for monitoring"""
+@router.get("/health")
+async def health_check():
+    """
+    Public health check endpoint for load balancers and orchestrators
+    """
     try:
-        # System metrics
-        cpu_percent = psutil.cpu_percent(interval=1)
-        memory = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
+        health_status = await health_checker.get_health_status()
         
-        # Database health
-        db_health = await check_db_health()
+        # Return appropriate HTTP status code
+        if health_status["status"] == "healthy":
+            status_code = 200
+        elif health_status["status"] == "degraded":
+            status_code = 200  # Still accepting traffic
+        else:
+            status_code = 503  # Service unavailable
         
-        # Application metrics
-        uptime = time.time() - psutil.boot_time()
-        
-        metrics = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "system": {
-                "cpu_percent": cpu_percent,
-                "memory": {
-                    "total": memory.total,
-                    "available": memory.available,
-                    "percent": memory.percent,
-                    "used": memory.used,
-                    "free": memory.free
-                },
-                "disk": {
-                    "total": disk.total,
-                    "used": disk.used,
-                    "free": disk.free,
-                    "percent": (disk.used / disk.total) * 100
-                },
-                "uptime_seconds": uptime
-            },
-            "database": db_health,
-            "application": {
-                "version": settings.version,
-                "environment": settings.environment,
-                "config_tier": settings.config_tier.value,
-                "features_enabled": settings.get_active_features()
-            }
-        }
-        
-        # Add service-specific metrics if enabled
-        if settings.is_feature_enabled("websocket_updates"):
-            # TODO: Add WebSocket metrics
-            metrics["websocket"] = {
-                "active_connections": 0,
-                "messages_sent": 0,
-                "messages_received": 0
-            }
-        
-        if settings.is_feature_enabled("background_tasks"):
-            # TODO: Add Celery metrics
-            metrics["background_tasks"] = {
-                "active_workers": 0,
-                "pending_tasks": 0,
-                "completed_tasks": 0,
-                "failed_tasks": 0
-            }
-        
-        return metrics
+        return health_status
         
     except Exception as e:
-        logger.error("Failed to get metrics", error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to retrieve metrics")
+        logger.error("Health check failed", error=str(e))
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": "2025-01-30T15:30:00Z"
+        }
 
 
 @router.get("/health/detailed")
-async def detailed_health_check() -> Dict[str, Any]:
-    """Detailed health check for all components"""
+async def detailed_health_check(
+    current_user: TokenData = Depends(require_role(UserRole.ADMIN))
+):
+    """
+    Detailed health check with full diagnostic information (admin only)
+    """
     try:
-        health_checks = {}
-        overall_status = "healthy"
+        health_status = await health_checker.get_health_status()
         
-        # Database health
-        db_health = await check_db_health()
-        health_checks["database"] = db_health
-        if db_health["status"] != "healthy":
-            overall_status = "degraded"
-        
-        # External services health
-        health_checks["external_services"] = {}
-        
-        # Codegen API
-        try:
-            from backend.integrations import CodegenClient
-            async with CodegenClient() as client:
-                codegen_health = await client.health_check()
-                health_checks["external_services"]["codegen_api"] = codegen_health
-                if codegen_health["status"] != "healthy":
-                    overall_status = "degraded"
-        except Exception as e:
-            health_checks["external_services"]["codegen_api"] = {
-                "status": "unhealthy",
-                "error": str(e)
+        # Add additional diagnostic information
+        health_status.update({
+            "system_info": {
+                "uptime_seconds": metrics_collector.get_uptime(),
+                "metrics_enabled": metrics_collector.metrics_enabled,
+                "requested_by": current_user.username
             }
-            overall_status = "degraded"
+        })
         
-        # GitHub API
-        try:
-            from backend.integrations import GitHubClient
-            async with GitHubClient() as client:
-                github_health = await client.health_check()
-                health_checks["external_services"]["github_api"] = github_health
-                if github_health["status"] != "healthy":
-                    overall_status = "degraded"
-        except Exception as e:
-            health_checks["external_services"]["github_api"] = {
-                "status": "unhealthy",
-                "error": str(e)
-            }
-            overall_status = "degraded"
-        
-        # Gemini API
-        if settings.gemini_api_key:
-            try:
-                from backend.integrations import GeminiClient
-                async with GeminiClient() as client:
-                    gemini_health = await client.health_check()
-                    health_checks["external_services"]["gemini_api"] = gemini_health
-                    if gemini_health["status"] != "healthy":
-                        overall_status = "degraded"
-            except Exception as e:
-                health_checks["external_services"]["gemini_api"] = {
-                    "status": "unhealthy",
-                    "error": str(e)
-                }
-                overall_status = "degraded"
-        
-        # Internal services health
-        health_checks["internal_services"] = {}
-        
-        # WebSocket service
-        if settings.is_feature_enabled("websocket_updates"):
-            try:
-                # TODO: Add actual WebSocket service health check
-                health_checks["internal_services"]["websocket"] = {
-                    "status": "healthy",
-                    "active_connections": 0
-                }
-            except Exception as e:
-                health_checks["internal_services"]["websocket"] = {
-                    "status": "unhealthy",
-                    "error": str(e)
-                }
-                overall_status = "degraded"
-        
-        # Notification service
-        if settings.is_feature_enabled("email_notifications"):
-            try:
-                # TODO: Add actual notification service health check
-                health_checks["internal_services"]["notifications"] = {
-                    "status": "healthy",
-                    "queue_size": 0
-                }
-            except Exception as e:
-                health_checks["internal_services"]["notifications"] = {
-                    "status": "unhealthy",
-                    "error": str(e)
-                }
-                overall_status = "degraded"
-        
-        return {
-            "status": overall_status,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "checks": health_checks
-        }
+        return health_status
         
     except Exception as e:
         logger.error("Detailed health check failed", error=str(e))
         return {
-            "status": "unhealthy",
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "error": str(e)
+            "status": "error",
+            "error": str(e),
+            "timestamp": "2025-01-30T15:30:00Z"
         }
 
 
-@router.get("/stats")
-async def get_application_stats() -> Dict[str, Any]:
-    """Get application statistics"""
+@router.get("/metrics", response_class=PlainTextResponse)
+async def prometheus_metrics():
+    """
+    Prometheus metrics endpoint
+    """
+    return await get_metrics_response()
+
+
+@router.get("/metrics/custom")
+async def custom_metrics(
+    current_user: TokenData = Depends(require_role(UserRole.USER))
+):
+    """
+    Custom application metrics in JSON format
+    """
     try:
-        # TODO: Implement actual statistics from database
-        # For now, return placeholder data
+        # Get current system state
+        from backend.services.agent_run_manager import agent_run_manager
         
-        stats = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "projects": {
-                "total": 0,
-                "active": 0,
-                "inactive": 0
+        active_runs = await agent_run_manager.get_active_runs_count()
+        metrics_collector.set_active_agent_runs(active_runs)
+        
+        return {
+            "application_metrics": {
+                "uptime_seconds": metrics_collector.get_uptime(),
+                "active_agent_runs": active_runs,
+                "metrics_collection_enabled": metrics_collector.metrics_enabled
             },
-            "agent_runs": {
-                "total": 0,
-                "completed": 0,
-                "failed": 0,
-                "running": 0,
-                "pending": 0
-            },
-            "validation_runs": {
-                "total": 0,
-                "completed": 0,
-                "failed": 0,
-                "running": 0,
-                "pending": 0
-            },
-            "performance": {
-                "average_agent_run_duration": 0,
-                "average_validation_duration": 0,
-                "success_rate": 0.0
-            },
-            "usage": {
-                "total_tokens_used": 0,
-                "total_cost_usd": "0.00",
-                "prs_created": 0,
-                "prs_merged": 0
-            }
+            "timestamp": "2025-01-30T15:30:00Z",
+            "requested_by": current_user.username
         }
-        
-        return stats
         
     except Exception as e:
-        logger.error("Failed to get application stats", error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to retrieve application statistics")
+        logger.error("Custom metrics failed", error=str(e))
+        return {
+            "error": str(e),
+            "timestamp": "2025-01-30T15:30:00Z"
+        }
 
 
-@router.get("/logs")
+@router.get("/status")
+async def service_status():
+    """
+    Simple service status endpoint
+    """
+    return {
+        "service": "CodegenCICD",
+        "status": "running",
+        "version": "1.0.0",
+        "timestamp": "2025-01-30T15:30:00Z"
+    }
+
+
+@router.get("/logs/recent")
 async def get_recent_logs(
-    level: str = "INFO",
-    limit: int = 100,
-    service: str = None
-) -> List[Dict[str, Any]]:
-    """Get recent application logs"""
+    lines: int = 100,
+    current_user: TokenData = Depends(require_role(UserRole.ADMIN))
+):
+    """
+    Get recent application logs (admin only)
+    """
     try:
-        # TODO: Implement actual log retrieval from structured logging
-        # For now, return placeholder data
+        import os
         
-        logs = []
-        for i in range(min(limit, 10)):  # Return up to 10 placeholder logs
-            logs.append({
-                "timestamp": (datetime.utcnow() - timedelta(minutes=i)).isoformat() + "Z",
-                "level": level,
-                "service": service or "backend",
-                "message": f"Sample log message {i}",
-                "metadata": {
-                    "request_id": f"req_{i}",
-                    "user_id": None
-                }
-            })
+        log_file = "/app/logs/application.log"
+        if not os.path.exists(log_file):
+            return {
+                "logs": [],
+                "message": "Log file not found",
+                "timestamp": "2025-01-30T15:30:00Z"
+            }
         
-        return logs
+        # Read last N lines from log file
+        with open(log_file, 'r') as f:
+            log_lines = f.readlines()
+        
+        recent_logs = log_lines[-lines:] if len(log_lines) > lines else log_lines
+        
+        return {
+            "logs": [line.strip() for line in recent_logs],
+            "total_lines": len(recent_logs),
+            "requested_lines": lines,
+            "timestamp": "2025-01-30T15:30:00Z",
+            "requested_by": current_user.username
+        }
         
     except Exception as e:
-        logger.error("Failed to get recent logs", error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to retrieve logs")
+        logger.error("Failed to retrieve logs", error=str(e))
+        return {
+            "error": str(e),
+            "timestamp": "2025-01-30T15:30:00Z"
+        }
 
 
-@router.get("/alerts")
-async def get_active_alerts() -> List[Dict[str, Any]]:
-    """Get active system alerts"""
+@router.post("/metrics/reset")
+async def reset_metrics(
+    current_user: TokenData = Depends(require_role(UserRole.ADMIN))
+):
+    """
+    Reset application metrics (admin only)
+    """
     try:
-        alerts = []
+        # In a real implementation, you would reset Prometheus metrics
+        # For now, just log the action
+        logger.info("Metrics reset requested", requested_by=current_user.username)
         
-        # Check system resources
-        memory = psutil.virtual_memory()
-        if memory.percent > 90:
-            alerts.append({
-                "id": "high_memory_usage",
-                "severity": "warning",
-                "title": "High Memory Usage",
-                "message": f"Memory usage is at {memory.percent:.1f}%",
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "metadata": {
-                    "memory_percent": memory.percent,
-                    "memory_available": memory.available
-                }
-            })
-        
-        cpu_percent = psutil.cpu_percent(interval=1)
-        if cpu_percent > 90:
-            alerts.append({
-                "id": "high_cpu_usage",
-                "severity": "warning",
-                "title": "High CPU Usage",
-                "message": f"CPU usage is at {cpu_percent:.1f}%",
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "metadata": {
-                    "cpu_percent": cpu_percent
-                }
-            })
-        
-        disk = psutil.disk_usage('/')
-        disk_percent = (disk.used / disk.total) * 100
-        if disk_percent > 90:
-            alerts.append({
-                "id": "high_disk_usage",
-                "severity": "critical",
-                "title": "High Disk Usage",
-                "message": f"Disk usage is at {disk_percent:.1f}%",
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "metadata": {
-                    "disk_percent": disk_percent,
-                    "disk_free": disk.free
-                }
-            })
-        
-        # Check database health
-        db_health = await check_db_health()
-        if db_health["status"] != "healthy":
-            alerts.append({
-                "id": "database_unhealthy",
-                "severity": "critical",
-                "title": "Database Health Issue",
-                "message": "Database health check failed",
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "metadata": db_health
-            })
-        
-        return alerts
+        return {
+            "message": "Metrics reset successfully",
+            "timestamp": "2025-01-30T15:30:00Z",
+            "reset_by": current_user.username
+        }
         
     except Exception as e:
-        logger.error("Failed to get active alerts", error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to retrieve alerts")
+        logger.error("Failed to reset metrics", error=str(e))
+        return {
+            "error": str(e),
+            "timestamp": "2025-01-30T15:30:00Z"
+        }
+
+
+@router.get("/diagnostics")
+async def system_diagnostics(
+    current_user: TokenData = Depends(require_role(UserRole.ADMIN))
+):
+    """
+    Comprehensive system diagnostics (admin only)
+    """
+    try:
+        import psutil
+        import os
+        
+        # System information
+        system_info = {
+            "cpu_count": psutil.cpu_count(),
+            "cpu_percent": psutil.cpu_percent(interval=1),
+            "memory": {
+                "total": psutil.virtual_memory().total,
+                "available": psutil.virtual_memory().available,
+                "percent": psutil.virtual_memory().percent
+            },
+            "disk_usage": {}
+        }
+        
+        # Disk usage for important paths
+        for path in ["/app/logs", "/app/data", "/tmp"]:
+            if os.path.exists(path):
+                disk_usage = psutil.disk_usage(path)
+                system_info["disk_usage"][path] = {
+                    "total": disk_usage.total,
+                    "used": disk_usage.used,
+                    "free": disk_usage.free
+                }
+        
+        # Application information
+        app_info = {
+            "uptime_seconds": metrics_collector.get_uptime(),
+            "environment": os.environ.get("ENVIRONMENT", "unknown"),
+            "python_version": os.sys.version,
+            "process_id": os.getpid()
+        }
+        
+        # Database connection info
+        db_info = await health_checker.check_database()
+        redis_info = await health_checker.check_redis()
+        
+        return {
+            "system_info": system_info,
+            "application_info": app_info,
+            "database_status": db_info,
+            "redis_status": redis_info,
+            "timestamp": "2025-01-30T15:30:00Z",
+            "requested_by": current_user.username
+        }
+        
+    except Exception as e:
+        logger.error("System diagnostics failed", error=str(e))
+        return {
+            "error": str(e),
+            "timestamp": "2025-01-30T15:30:00Z"
+        }
 
