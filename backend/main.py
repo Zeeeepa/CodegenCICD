@@ -9,10 +9,12 @@ from pathlib import Path
 backend_dir = Path(__file__).parent
 sys.path.insert(0, str(backend_dir))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
 import uvicorn
 
 # Import routers
@@ -20,6 +22,10 @@ from routers.service_validation import router as service_validation_router
 from routers.projects import router as projects_router
 from routers.health import router as health_router
 from routers.webhooks import router as webhooks_router
+
+# Import database dependencies
+from dependencies import get_db_service
+from services.database_service import DatabaseService
 
 # Create FastAPI app
 app = FastAPI(
@@ -43,6 +49,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Pydantic models for request/response validation
+class CreateProjectRequest(BaseModel):
+    name: str
+    github_owner: str
+    github_repo: str
+    auto_merge_enabled: bool = False
+    auto_confirm_plans: bool = False
+    settings: Optional[Dict[str, Any]] = None
+    secrets: Optional[List[Dict[str, str]]] = None
+
+class UpdateProjectRequest(BaseModel):
+    name: Optional[str] = None
+    status: Optional[str] = None
+    auto_merge_enabled: Optional[bool] = None
+    auto_confirm_plans: Optional[bool] = None
+    webhook_url: Optional[str] = None
+
+class UpdateSettingsRequest(BaseModel):
+    planning_statement: Optional[str] = None
+    repository_rules: Optional[str] = None
+    setup_commands: Optional[str] = None
+    branch_name: Optional[str] = None
+
+class UpdateSecretsRequest(BaseModel):
+    secrets: List[Dict[str, str]]
+
 # Basic health check endpoint
 @app.get("/")
 async def root():
@@ -52,103 +84,149 @@ async def root():
 async def health_check():
     return {"status": "healthy", "service": "codegencd-api"}
 
-# Mock endpoints for the UI
+# Real database endpoints
 @app.get("/api/projects")
-async def get_projects():
+async def get_projects(db_service: DatabaseService = Depends(get_db_service)):
     """Get all projects"""
-    return {
-        "projects": [
-            {
-                "id": 1,
-                "name": "Sample Project",
-                "github_owner": "Zeeeepa",
-                "github_repo": "CodegenCICD",
-                "status": "active",
-                "webhook_url": "https://webhook-gateway.pixeliumperfecto.workers.dev/webhook/Zeeeepa/CodegenCICD",
-                "auto_merge_enabled": False,
-                "auto_confirm_plans": True,
-                "created_at": "2024-01-01T00:00:00Z",
-                "updated_at": "2024-01-01T00:00:00Z"
-            }
-        ]
-    }
+    try:
+        projects = await db_service.get_projects()
+        return {"projects": [project.dict() for project in projects]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/projects")
-async def create_project(project_data: dict):
+async def create_project(
+    project_data: CreateProjectRequest,
+    db_service: DatabaseService = Depends(get_db_service)
+):
     """Create a new project"""
-    return {
-        "id": 2,
-        "name": project_data.get("name", "New Project"),
-        "github_owner": project_data.get("github_owner", ""),
-        "github_repo": project_data.get("github_repo", ""),
-        "status": "active",
-        "webhook_url": f"https://webhook-gateway.pixeliumperfecto.workers.dev/webhook/{project_data.get('github_owner', '')}/{project_data.get('github_repo', '')}",
-        "auto_merge_enabled": project_data.get("auto_merge_enabled", False),
-        "auto_confirm_plans": project_data.get("auto_confirm_plans", False),
-        "created_at": "2024-01-01T00:00:00Z",
-        "updated_at": "2024-01-01T00:00:00Z"
-    }
+    try:
+        # Prepare project data
+        project_dict = {
+            "name": project_data.name,
+            "github_owner": project_data.github_owner,
+            "github_repo": project_data.github_repo,
+            "auto_merge_enabled": project_data.auto_merge_enabled,
+            "auto_confirm_plans": project_data.auto_confirm_plans,
+            "status": "active"
+        }
+        
+        # Prepare settings data
+        settings_dict = project_data.settings or {}
+        if "branch_name" not in settings_dict:
+            settings_dict["branch_name"] = "main"
+        
+        # Create project with settings
+        project = await db_service.create_project_with_settings(project_dict, settings_dict)
+        
+        # Add secrets if provided
+        if project_data.secrets:
+            await db_service.update_project_secrets(project.id, project_data.secrets)
+        
+        return project.dict()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/projects/{project_id}")
+async def get_project(
+    project_id: int,
+    db_service: DatabaseService = Depends(get_db_service)
+):
+    """Get project by ID"""
+    try:
+        project = await db_service.get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return project.dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/projects/{project_id}")
+async def update_project(
+    project_id: int,
+    project_data: UpdateProjectRequest,
+    db_service: DatabaseService = Depends(get_db_service)
+):
+    """Update project"""
+    try:
+        # Filter out None values
+        update_data = {k: v for k, v in project_data.dict().items() if v is not None}
+        
+        project = await db_service.update_project(project_id, update_data)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return project.dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/projects/{project_id}")
+async def delete_project(
+    project_id: int,
+    db_service: DatabaseService = Depends(get_db_service)
+):
+    """Delete project"""
+    try:
+        deleted = await db_service.delete_project(project_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return {"message": "Project deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/projects/{project_id}/configuration")
-async def get_project_configuration(project_id: int):
+async def get_project_configuration(
+    project_id: int,
+    db_service: DatabaseService = Depends(get_db_service)
+):
     """Get project configuration"""
-    return {
-        "id": 1,
-        "project_id": project_id,
-        "repository_rules": "Follow TypeScript best practices and use Material-UI components.",
-        "setup_commands": "cd frontend\nnpm install\nnpm run build\nnpm start",
-        "planning_statement": "You are working on a React TypeScript project with Material-UI. Focus on clean, maintainable code.",
-        "branch_name": "main",
-        "created_at": "2024-01-01T00:00:00Z",
-        "updated_at": "2024-01-01T00:00:00Z"
-    }
+    try:
+        config = await db_service.get_project_full_config(project_id)
+        return config
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.put("/api/projects/{project_id}/configuration")
-async def update_project_configuration(project_id: int, config_data: dict):
-    """Update project configuration"""
-    return {
-        "id": 1,
-        "project_id": project_id,
-        "repository_rules": config_data.get("repository_rules", ""),
-        "setup_commands": config_data.get("setup_commands", ""),
-        "planning_statement": config_data.get("planning_statement", ""),
-        "branch_name": config_data.get("branch_name", "main"),
-        "created_at": "2024-01-01T00:00:00Z",
-        "updated_at": "2024-01-01T00:00:00Z"
-    }
+@app.put("/api/projects/{project_id}/settings")
+async def update_project_settings(
+    project_id: int,
+    settings_data: UpdateSettingsRequest,
+    db_service: DatabaseService = Depends(get_db_service)
+):
+    """Update project settings"""
+    try:
+        # Filter out None values
+        update_data = {k: v for k, v in settings_data.dict().items() if v is not None}
+        
+        settings = await db_service.update_project_settings(project_id, update_data)
+        if not settings:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return settings.dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/projects/{project_id}/secrets")
-async def get_project_secrets(project_id: int):
-    """Get project secrets"""
-    return {
-        "secrets": [
-            {
-                "id": 1,
-                "project_id": project_id,
-                "key": "CODEGEN_API_TOKEN",
-                "value": "sk-ce027fa7-3c8d-4beb-8c86-ed8ae982ac99",
-                "created_at": "2024-01-01T00:00:00Z"
-            },
-            {
-                "id": 2,
-                "project_id": project_id,
-                "key": "GITHUB_TOKEN",
-                "value": "your_github_token_here",
-                "created_at": "2024-01-01T00:00:00Z"
-            }
-        ]
-    }
-
-@app.post("/api/projects/{project_id}/secrets")
-async def create_project_secret(project_id: int, secret_data: dict):
-    """Create a new project secret"""
-    return {
-        "id": 3,
-        "project_id": project_id,
-        "key": secret_data.get("key", ""),
-        "value": secret_data.get("value", ""),
-        "created_at": "2024-01-01T00:00:00Z"
-    }
+@app.put("/api/projects/{project_id}/secrets")
+async def update_project_secrets(
+    project_id: int,
+    secrets_data: UpdateSecretsRequest,
+    db_service: DatabaseService = Depends(get_db_service)
+):
+    """Update project secrets"""
+    try:
+        success = await db_service.update_project_secrets(project_id, secrets_data.secrets)
+        if not success:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return {"message": "Secrets updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/agent-runs")
 async def create_agent_run(agent_run_data: dict):
