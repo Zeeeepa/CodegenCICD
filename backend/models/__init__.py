@@ -2,7 +2,7 @@
 Database Models for CodegenCICD Dashboard
 """
 from .base import Base, BaseModel, TimestampMixin
-from .project import Project, ProjectConfiguration, ProjectSecret
+from .project import Project, ProjectSecret, ProjectAgentRun
 from .agent_run import AgentRun, AgentRunStep, AgentRunResponse
 from .validation import ValidationRun, ValidationStep, ValidationResult
 from .user import User, UserSession
@@ -12,7 +12,7 @@ __all__ = [
     "BaseModel", 
     "TimestampMixin",
     "Project",
-    "ProjectConfiguration",
+    "ProjectAgentRun",
     "ProjectSecret",
     "AgentRun",
     "AgentRunStep",
@@ -23,4 +23,3 @@ __all__ = [
     "User",
     "UserSession",
 ]
-
