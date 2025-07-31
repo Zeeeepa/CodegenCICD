@@ -105,14 +105,28 @@ setup_backend() {
     if [ ! -d "venv" ]; then
         print_status "Creating Python virtual environment..."
         python3 -m venv venv
+        if [ $? -ne 0 ]; then
+            print_error "Failed to create virtual environment. Please install python3-venv:"
+            print_error "sudo apt install python3-venv"
+            exit 1
+        fi
     fi
     
     # Activate virtual environment
-    source venv/bin/activate
+    if [ -f "venv/bin/activate" ]; then
+        source venv/bin/activate
+    else
+        print_error "Virtual environment activation script not found!"
+        exit 1
+    fi
     
     # Install dependencies
     print_status "Installing Python dependencies..."
     pip install -r requirements.txt
+    if [ $? -ne 0 ]; then
+        print_error "Failed to install Python dependencies"
+        exit 1
+    fi
     
     # Copy environment file
     if [ -f "../.env" ]; then
@@ -132,6 +146,10 @@ setup_frontend() {
     # Install dependencies
     print_status "Installing Node.js dependencies..."
     npm install
+    if [ $? -ne 0 ]; then
+        print_error "Failed to install Node.js dependencies"
+        exit 1
+    fi
     
     # Install Tailwind CSS properly (no more CDN warnings!)
     print_status "Setting up Tailwind CSS..."
