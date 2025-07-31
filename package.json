@@ -1,0 +1,79 @@
+{
+  "name": "codegenapp-integrated",
+  "version": "1.0.0",
+  "description": "Integrated AI Development Workflow Platform with Grainchain, Graph-sitter, Web-eval-agent, and Codegen SDK",
+  "main": "server.js",
+  "scripts": {
+    "dev": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\"",
+    "start": "concurrently \"npm run backend:start\" \"npm run frontend:start\"",
+    "backend:dev": "cd backend && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+    "backend:start": "cd backend && python -m gunicorn main:app -c gunicorn.conf.py",
+    "frontend:dev": "cd frontend && npm run dev",
+    "frontend:start": "cd frontend && npm run build && npm run preview",
+    "frontend:build": "cd frontend && npm run build",
+    "install:all": "npm run install:backend && npm run install:frontend && npm run install:integrated",
+    "install:backend": "cd backend && pip install -r requirements.txt",
+    "install:frontend": "cd frontend && npm install",
+    "install:integrated": "npm run install:grainchain && npm run install:graph-sitter && npm run install:web-eval && npm run install:codegen-sdk",
+    "install:grainchain": "pip install git+https://github.com/Zeeeepa/grainchain.git || echo 'Grainchain install failed - will use mock'",
+    "install:graph-sitter": "pip install git+https://github.com/Zeeeepa/graph-sitter.git || echo 'Graph-sitter install failed - will use mock'",
+    "install:web-eval": "uvx --from git+https://github.com/Zeeeepa/web-eval-agent.git playwright install || echo 'Web-eval-agent install failed - will use mock'",
+    "install:codegen-sdk": "pip install git+https://github.com/Zeeeepa/codegen-api-client.git || echo 'Codegen SDK install failed - will use mock'",
+    "setup": "npm run install:all && npm run setup:env && npm run setup:db",
+    "setup:env": "node scripts/setup-env.js",
+    "setup:db": "cd backend && python -m alembic upgrade head || echo 'Database setup skipped'",
+    "test": "npm run test:backend && npm run test:frontend && npm run test:integration",
+    "test:backend": "cd backend && python -m pytest tests/ -v",
+    "test:frontend": "cd frontend && npm run test",
+    "test:integration": "node scripts/test-integration.js",
+    "test:web-eval": "node scripts/test-web-eval-flow.js",
+    "validate": "npm run validate:services && npm run validate:integration",
+    "validate:services": "node scripts/validate-services.js",
+    "validate:integration": "node scripts/validate-integration.js",
+    "cicd:full": "npm run setup && npm run validate && npm run test && npm run test:web-eval",
+    "health": "curl -f http://localhost:8000/api/health || echo 'Backend not running'",
+    "logs": "tail -f backend/logs/*.log || echo 'No logs found'",
+    "clean": "rm -rf node_modules frontend/node_modules backend/__pycache__ backend/.pytest_cache",
+    "reset": "npm run clean && npm install"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "dotenv": "^16.3.1",
+    "axios": "^1.6.2",
+    "chalk": "^4.1.2",
+    "inquirer": "^8.2.6",
+    "ora": "^5.4.1",
+    "playwright": "^1.40.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "jest": "^29.7.0",
+    "supertest": "^6.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0",
+    "python": ">=3.11.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Zeeeepa/CodegenCICD.git"
+  },
+  "keywords": [
+    "ai",
+    "cicd",
+    "automation",
+    "grainchain",
+    "graph-sitter",
+    "web-eval-agent",
+    "codegen"
+  ],
+  "author": "Zeeeepa",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Zeeeepa/CodegenCICD/issues"
+  },
+  "homepage": "https://github.com/Zeeeepa/CodegenCICD#readme"
+}
+

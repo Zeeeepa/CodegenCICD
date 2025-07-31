@@ -1,0 +1,150 @@
+# Multi-stage Docker build for CodegenCICD with integrated libraries
+FROM python:3.13-slim as base
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONPATH=/app/backend
+
+# Install system dependencies for all integrated libraries
+RUN apt-get update && apt-get install -y \
+    # Basic build tools
+    build-essential \
+    git \
+    curl \
+    wget \
+    unzip \
+    # Playwright and browser dependencies
+    libnss3 \
+    libatk-bridge2.0-0 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libxss1 \
+    libasound2 \
+    libatspi2.0-0 \
+    libgtk-3-0 \
+    # Graph-sitter dependencies
+    libffi-dev \
+    libssl-dev \
+    # Grainchain dependencies
+    docker.io \
+    # Additional utilities
+    procps \
+    htop \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js for Playwright and web-eval-agent
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs
+
+# Install Playwright browsers
+RUN npm install -g playwright \
+    && playwright install --with-deps chromium firefox webkit
+
+# Install uv for Python package management
+RUN pip install uv
+
+# Development stage
+FROM base as development
+
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY backend/requirements-integrated.txt /app/backend/
+COPY backend/requirements.txt /app/backend/
+
+# Install Python dependencies
+RUN uv pip install --system -r /app/backend/requirements-integrated.txt
+
+# Install integrated libraries from git repositories
+RUN uv pip install --system git+https://github.com/Zeeeepa/grainchain.git || echo "Grainchain not available"
+RUN uv pip install --system git+https://github.com/Zeeeepa/graph-sitter.git || echo "Graph-sitter not available"  
+RUN uv pip install --system git+https://github.com/Zeeeepa/codegen-api-client.git || echo "Codegen API client not available"
+
+# Install web-eval-agent via uvx
+RUN uvx --from git+https://github.com/Zeeeepa/web-eval-agent.git playwright install || echo "Web-eval-agent not available"
+
+# Copy application code
+COPY . /app/
+
+# Create necessary directories
+RUN mkdir -p /app/logs /app/data /app/uploads
+
+# Set permissions
+RUN chmod +x /app/docker/entrypoint.sh || echo "Entrypoint script not found"
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/api/health || exit 1
+
+# Default command
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# Production stage
+FROM base as production
+
+WORKDIR /app
+
+# Create non-root user for security
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# Copy requirements
+COPY backend/requirements-integrated.txt /app/backend/
+COPY backend/requirements.txt /app/backend/
+
+# Install Python dependencies
+RUN uv pip install --system -r /app/backend/requirements-integrated.txt
+
+# Install integrated libraries from git repositories
+RUN uv pip install --system git+https://github.com/Zeeeepa/grainchain.git || echo "Grainchain not available"
+RUN uv pip install --system git+https://github.com/Zeeeepa/graph-sitter.git || echo "Graph-sitter not available"
+RUN uv pip install --system git+https://github.com/Zeeeepa/codegen-api-client.git || echo "Codegen API client not available"
+
+# Install web-eval-agent via uvx
+RUN uvx --from git+https://github.com/Zeeeepa/web-eval-agent.git playwright install || echo "Web-eval-agent not available"
+
+# Copy application code
+COPY --chown=appuser:appuser . /app/
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/logs /app/data /app/uploads \
+    && chown -R appuser:appuser /app/logs /app/data /app/uploads
+
+# Set permissions for entrypoint
+RUN chmod +x /app/docker/entrypoint.sh || echo "Entrypoint script not found"
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/api/health || exit 1
+
+# Production command with Gunicorn
+CMD ["gunicorn", "backend.main:app", "-c", "docker/gunicorn.conf.py"]
+
+# Testing stage
+FROM development as testing
+
+# Install additional testing dependencies
+RUN uv pip install --system pytest pytest-asyncio pytest-cov pytest-mock
+
+# Copy test files
+COPY tests/ /app/tests/
+
+# Run tests
+RUN python -m pytest tests/ -v --cov=backend --cov-report=html --cov-report=term
+
+# Default to development stage
+FROM development
+
