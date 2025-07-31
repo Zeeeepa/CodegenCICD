@@ -62,7 +62,7 @@ class AgentRun(BaseModel):
     max_iterations = Column(Integer, default=10)
     
     # Metadata
-    metadata = Column(JSON, default=dict)
+    meta_data = Column(JSON, default=dict)
     
     # Relationships
     project = relationship("Project", back_populates="agent_runs")
@@ -158,11 +158,10 @@ class AgentRunResponse(BaseModel):
     pr_data = Column(JSON, default=dict)
     
     # Additional metadata
-    metadata = Column(JSON, default=dict)
+    meta_data = Column(JSON, default=dict)
     
     # Relationships
     agent_run = relationship("AgentRun", back_populates="responses")
     
     def __repr__(self) -> str:
         return f"<AgentRunResponse(agent_run_id={self.agent_run_id}, seq={self.sequence_number}, type={self.response_type})>"
-

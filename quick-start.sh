@@ -186,6 +186,9 @@ start_backend() {
     cd backend
     source venv/bin/activate
     
+    # Set PYTHONPATH to include project root for backend imports
+    export PYTHONPATH="$(pwd)/..:$PYTHONPATH"
+    
     # Start backend in background
     nohup uvicorn main:app --host 0.0.0.0 --port 8000 --reload > ../backend.log 2>&1 &
     BACKEND_PID=$!

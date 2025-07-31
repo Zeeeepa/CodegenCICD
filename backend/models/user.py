@@ -35,7 +35,7 @@ class User(BaseModel):
     api_key_active = Column(Boolean, default=False, nullable=False)
     
     # Metadata
-    metadata = Column(JSON, default=dict)
+    meta_data = Column(JSON, default=dict)
     
     # Relationships
     sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
@@ -90,4 +90,3 @@ class UserSession(BaseModel):
             return datetime.utcnow() > expires_at
         except (ValueError, AttributeError):
             return True
-

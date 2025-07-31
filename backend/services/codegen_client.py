@@ -305,8 +305,8 @@ class AgentRunManager:
                 
                 # Update database record
                 agent_run.status = AgentRunStatus.RUNNING
-                agent_run.metadata = {
-                    **(agent_run.metadata or {}),
+                agent_run.meta_data = {
+                    **(agent_run.meta_data or {}),
                     "last_continued_at": datetime.utcnow().isoformat(),
                     "continue_response": api_response
                 }
@@ -349,8 +349,8 @@ class AgentRunManager:
                     async with CodegenClient() as client:
                         api_response = await client.cancel_agent_run(agent_run.codegen_run_id)
                     
-                    agent_run.metadata = {
-                        **(agent_run.metadata or {}),
+                    agent_run.meta_data = {
+                        **(agent_run.meta_data or {}),
                         "cancelled_at": datetime.utcnow().isoformat(),
                         "cancel_response": api_response
                     }
@@ -458,8 +458,8 @@ class AgentRunManager:
                     agent_run.steps.append(step)
                 
                 # Update metadata
-                agent_run.metadata = {
-                    **(agent_run.metadata or {}),
+                agent_run.meta_data = {
+                    **(agent_run.meta_data or {}),
                     "last_update": datetime.utcnow().isoformat(),
                     "latest_update": update
                 }

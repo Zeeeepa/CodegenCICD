@@ -156,8 +156,8 @@ class Settings(BaseSettings):
     
     @validator("graph_sitter_languages", pre=True)
     def parse_languages(cls, v):
-        if isinstance(v, str):
-            return v.split(",")
+        if isinstance(v, list):
+            return ",".join(v)
         return v
     
     @validator("encryption_key")
