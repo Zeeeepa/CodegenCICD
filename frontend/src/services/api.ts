@@ -1,209 +1,208 @@
-import axios from 'axios';
+/**
+ * API Client for CICD Dashboard
+ */
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+import {
+  Project,
+  AgentRun,
+  Workflow,
+  GitHubRepository,
+  CreateProjectRequest,
+  UpdateProjectRequest,
+  CreateAgentRunRequest,
+  PaginatedResponse,
+  SystemHealth,
+  ProjectSettings,
+  ProjectSecret
+} from '../types/cicd';
 
-const api = axios.create({
-  baseURL: `${API_BASE_URL}/api/v1`,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+class APIClient {
+  private baseURL: string;
+  private timeout: number;
 
-// Request interceptor for adding auth tokens if needed
-api.interceptors.request.use(
-  (config) => {
-    // Add auth token if available
-    const token = localStorage.getItem('auth_token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+  constructor(baseURL: string = '/api', timeout: number = 30000) {
+    this.baseURL = baseURL;
+    this.timeout = timeout;
+  }
+
+  private async request<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<T> {
+    const url = `${this.baseURL}${endpoint}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          throw new Error('Request timeout');
+        }
+        throw error;
+      }
+      throw new Error('Unknown error occurred');
     }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
   }
-);
 
-// Response interceptor for handling errors
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    console.error('API Error:', error);
-    return Promise.reject(error);
+  // Health and System
+  async getHealth(): Promise<SystemHealth> {
+    return this.request<SystemHealth>('/health');
   }
-);
 
-// Types
-export interface Project {
-  id: number;
-  name: string;
-  description?: string;
-  github_repo: string;
-  github_owner: string;
-  github_branch: string;
-  github_url: string;
-  webhook_url: string;
-  webhook_active: boolean;
-  auto_merge_enabled: boolean;
-  auto_confirm_plans: boolean;
-  auto_merge_threshold: number;
-  auto_merge_validated_pr?: boolean;
-  planning_statement?: string;
-  repository_rules?: string;
-  setup_commands?: string;
-  setup_branch?: string;
-  is_active: boolean;
-  status: 'active' | 'inactive';
-  validation_enabled: boolean;
-  
-  // Configuration indicators
-  has_repository_rules: boolean;
-  has_setup_commands: boolean;
-  has_secrets: boolean;
-  has_planning_statement: boolean;
-  
-  // Current agent run status
-  current_agent_run?: {
-    id: string;
-    status: 'pending' | 'running' | 'waiting_for_input' | 'completed' | 'failed' | 'cancelled';
-    progress_percentage: number;
-    current_step?: string;
-    run_type: 'regular' | 'plan' | 'pr_creation' | 'error_fix';
-    pr_number?: number;
-    pr_url?: string;
-  };
-  
-  // Recent activity
-  last_run_at?: string;
-  total_runs: number;
-  success_rate: number;
-  created_at: string;
-  updated_at: string;
+  // Projects
+  async getProjects(): Promise<PaginatedResponse<Project>> {
+    return this.request<PaginatedResponse<Project>>('/projects');
+  }
+
+  async getProject(id: number): Promise<Project> {
+    return this.request<Project>(`/projects/${id}`);
+  }
+
+  async createProject(data: CreateProjectRequest): Promise<Project> {
+    return this.request<Project>('/projects', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateProject(id: number, data: UpdateProjectRequest): Promise<Project> {
+    return this.request<Project>(`/projects/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteProject(id: number): Promise<void> {
+    return this.request<void>(`/projects/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Project Configuration
+  async getProjectConfiguration(id: number): Promise<{
+    project: Project;
+    settings: ProjectSettings;
+    secrets: ProjectSecret[];
+  }> {
+    return this.request(`/projects/${id}/configuration`);
+  }
+
+  async updateProjectSettings(id: number, settings: Partial<ProjectSettings>): Promise<ProjectSettings> {
+    return this.request<ProjectSettings>(`/projects/${id}/settings`, {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  }
+
+  async updateProjectSecrets(id: number, secrets: Array<{key_name: string; value: string}>): Promise<ProjectSecret[]> {
+    return this.request<ProjectSecret[]>(`/projects/${id}/secrets`, {
+      method: 'PUT',
+      body: JSON.stringify({ secrets }),
+    });
+  }
+
+  // Agent Runs
+  async getAgentRuns(projectId?: number): Promise<PaginatedResponse<AgentRun>> {
+    const endpoint = projectId ? `/projects/${projectId}/agent-runs` : '/agent-runs';
+    return this.request<PaginatedResponse<AgentRun>>(endpoint);
+  }
+
+  async getAgentRun(id: number): Promise<AgentRun> {
+    return this.request<AgentRun>(`/agent-runs/${id}`);
+  }
+
+  async createAgentRun(projectId: number, data: CreateAgentRunRequest): Promise<AgentRun> {
+    return this.request<AgentRun>(`/projects/${projectId}/agent-runs`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async cancelAgentRun(id: number): Promise<void> {
+    return this.request<void>(`/agent-runs/${id}/cancel`, {
+      method: 'POST',
+    });
+  }
+
+  // Workflows
+  async getWorkflows(projectId?: number): Promise<PaginatedResponse<Workflow>> {
+    const endpoint = projectId ? `/projects/${projectId}/workflows` : '/workflows';
+    return this.request<PaginatedResponse<Workflow>>(endpoint);
+  }
+
+  async getWorkflow(id: string): Promise<Workflow> {
+    return this.request<Workflow>(`/workflows/${id}`);
+  }
+
+  // GitHub Integration
+  async getGitHubRepositories(): Promise<GitHubRepository[]> {
+    return this.request<GitHubRepository[]>('/github/repositories');
+  }
+
+  async searchGitHubRepositories(query: string): Promise<GitHubRepository[]> {
+    return this.request<GitHubRepository[]>(`/github/repositories/search?q=${encodeURIComponent(query)}`);
+  }
+
+  // Webhooks
+  async setupWebhook(projectId: number): Promise<{ webhook_url: string }> {
+    return this.request<{ webhook_url: string }>(`/projects/${projectId}/webhook`, {
+      method: 'POST',
+    });
+  }
+
+  async removeWebhook(projectId: number): Promise<void> {
+    return this.request<void>(`/projects/${projectId}/webhook`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Statistics and Monitoring
+  async getProjectStats(id: number): Promise<{
+    totalRuns: number;
+    successRate: number;
+    averageRunTime: number;
+    recentActivity: Array<{
+      date: string;
+      runs: number;
+      success: number;
+    }>;
+  }> {
+    return this.request(`/projects/${id}/stats`);
+  }
+
+  async getSystemStats(): Promise<{
+    totalProjects: number;
+    activeProjects: number;
+    totalRuns: number;
+    runningRuns: number;
+    systemLoad: number;
+  }> {
+    return this.request('/stats');
+  }
 }
 
-export interface AgentRun {
-  id: number;
-  project_id: number;
-  codegen_run_id?: number;
-  target_text: string;
-  planning_statement?: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-  run_type: 'regular' | 'plan' | 'pr';
-  result?: string;
-  error_message?: string;
-  pr_number?: number;
-  pr_url?: string;
-  validation_status: string;
-  auto_merge_enabled: boolean;
-  merge_completed: boolean;
-  started_at: string;
-  completed_at?: string;
-}
+// Create singleton instance
+export const apiClient = new APIClient();
 
-export interface ProjectConfiguration {
-  id: number;
-  project_id: number;
-  repository_rules?: string;
-  setup_commands?: string;
-  planning_statement?: string;
-  branch_name: string;
-  created_at: string;
-  updated_at: string;
-}
+// Export for testing
+export { APIClient };
 
-export interface ProjectSecret {
-  id: number;
-  project_id: number;
-  key: string;
-  value: string; // This will be encrypted on the backend
-  created_at: string;
-}
-
-// API Functions
-export const projectsApi = {
-  // Get all projects
-  getAll: () => api.get<Project[]>('/projects'),
-  
-  // Get project by ID
-  getById: (id: number) => api.get<Project>(`/projects/${id}`),
-  
-  // Create new project
-  create: (data: Partial<Project>) => api.post<Project>('/projects', data),
-  
-  // Update project
-  update: (id: number, data: Partial<Project>) => api.put<Project>(`/projects/${id}`, data),
-  
-  // Delete project
-  delete: (id: number) => api.delete(`/projects/${id}`),
-  
-  // Get GitHub repositories for dropdown
-  getGitHubRepos: () => api.get<any[]>('/projects/github-repos'),
-};
-
-export const agentRunsApi = {
-  // Get all agent runs for a project
-  getByProject: (projectId: number) => api.get<AgentRun[]>(`/agent-runs?project_id=${projectId}`),
-  
-  // Get agent run by ID
-  getById: (id: number) => api.get<AgentRun>(`/agent-runs/${id}`),
-  
-  // Create new agent run
-  create: (data: {
-    project_id: number;
-    target_text: string;
-    planning_statement?: string;
-  }) => api.post<AgentRun>('/agent-runs', data),
-  
-  // Continue agent run
-  continue: (id: number, data: { message: string }) => 
-    api.post<AgentRun>(`/agent-runs/${id}/continue`, data),
-  
-  // Cancel agent run
-  cancel: (id: number) => api.post(`/agent-runs/${id}/cancel`),
-};
-
-export const configurationsApi = {
-  // Get project configuration
-  getByProject: (projectId: number) => 
-    api.get<ProjectConfiguration>(`/configurations/${projectId}`),
-  
-  // Update project configuration
-  update: (projectId: number, data: Partial<ProjectConfiguration>) => 
-    api.put<ProjectConfiguration>(`/configurations/${projectId}`, data),
-  
-  // Get project secrets
-  getSecrets: (projectId: number) => 
-    api.get<ProjectSecret[]>(`/configurations/${projectId}/secrets`),
-  
-  // Create secret
-  createSecret: (projectId: number, data: { key: string; value: string }) => 
-    api.post<ProjectSecret>(`/configurations/${projectId}/secrets`, data),
-  
-  // Update secret
-  updateSecret: (projectId: number, secretId: number, data: { key: string; value: string }) => 
-    api.put<ProjectSecret>(`/configurations/${projectId}/secrets/${secretId}`, data),
-  
-  // Delete secret
-  deleteSecret: (projectId: number, secretId: number) => 
-    api.delete(`/configurations/${projectId}/secrets/${secretId}`),
-  
-  // Test setup commands
-  testSetupCommands: (projectId: number, data: { commands: string; branch?: string }) => 
-    api.post(`/configurations/${projectId}/test-setup`, data),
-};
-
-export const validationApi = {
-  // Get validation status
-  getStatus: (agentRunId: number) => 
-    api.get(`/validation/${agentRunId}/status`),
-  
-  // Get validation logs
-  getLogs: (agentRunId: number) => 
-    api.get(`/validation/${agentRunId}/logs`),
-  
-  // Retry validation
-  retry: (agentRunId: number) => 
-    api.post(`/validation/${agentRunId}/retry`),
-};
-
-export default api;
