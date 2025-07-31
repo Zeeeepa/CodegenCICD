@@ -20,7 +20,8 @@ import {
   MenuItem,
   Divider,
   FormControlLabel,
-  Checkbox
+  Checkbox,
+  Alert
 } from '@mui/material';
 import {
   PlayArrow as PlayArrowIcon,
@@ -35,16 +36,17 @@ import {
   Code as CodeIcon,
   Security as SecurityIcon,
   Terminal as TerminalIcon,
-  AutoMode as AutoModeIcon
+  AutoMode as AutoModeIcon,
+  Info as InfoIcon
 } from '@mui/icons-material';
 
-import { ProjectSettings } from './ProjectSettings';
-import { AgentRunDialog } from './AgentRunDialog';
-import { ValidationFlow } from './ValidationFlow';
+
+import AgentRunDialog from './AgentRunDialog';
+import { Project as ApiProject } from '../services/api';
 
 import { useProjectActions } from '../store/projectStore';
 import { useWorkflowActions, useActiveWorkflows } from '../store/workflowStore';
-import { Project, Notification, NotificationType, ProjectStatus, WorkflowStatus } from '../types/cicd';
+import { Project, Notification, NotificationType, ProjectStatus, WorkflowStatus, AgentRunType } from '../types/cicd';
 
 // ============================================================================
 // INTERFACES
@@ -95,6 +97,19 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         return 'warning';
       default:
         return 'default';
+    }
+  };
+
+  const getStatusIcon = (status?: ProjectStatus) => {
+    switch (status || project.status) {
+      case ProjectStatus.ACTIVE:
+        return <CheckCircleIcon />;
+      case ProjectStatus.ERROR:
+        return <ErrorIcon />;
+      case ProjectStatus.CONFIGURING:
+        return <SettingsIcon />;
+      default:
+        return <InfoIcon />;
     }
   };
 
@@ -254,6 +269,75 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     setShowValidation(true);
   };
 
+  const handleAgentRunDialogSubmit = (data: { target_text: string; planning_statement?: string }) => {
+    handleAgentRunSubmit(data.target_text);
+  };
+
+  // Convert cicd.ts Project to api.ts Project format for AgentRunDialog
+  const convertToApiProject = (project: Project): ApiProject => {
+    // Convert WorkflowStatus to expected status strings
+    const convertStatus = (status: WorkflowStatus): string => {
+      switch (status) {
+        case WorkflowStatus.IDLE: return 'pending';
+        case WorkflowStatus.RUNNING: return 'running';
+        case WorkflowStatus.VALIDATING: return 'running';
+        case WorkflowStatus.COMPLETED: return 'completed';
+        case WorkflowStatus.FAILED: return 'failed';
+        case WorkflowStatus.CANCELLED: return 'cancelled';
+        default: return 'pending';
+      }
+    };
+
+    // Convert AgentRunType to expected run_type strings
+    const convertRunType = (runType: AgentRunType): string => {
+      switch (runType) {
+        case AgentRunType.REGULAR: return 'regular';
+        case AgentRunType.PLAN: return 'plan';
+        case AgentRunType.PR: return 'pr';
+        default: return 'regular';
+      }
+    };
+
+    return {
+      id: parseInt(project.id),
+      name: project.name,
+      description: '',
+      github_repo: project.repo,
+      github_owner: project.owner,
+      github_branch: project.defaultBranch,
+      github_url: `https://github.com/${project.owner}/${project.repo}`,
+      webhook_url: '',
+      webhook_active: project.settings.webhookEnabled,
+      auto_merge_enabled: project.settings.autoMergeValidatedPR,
+      auto_confirm_plans: project.settings.autoConfirmPlan,
+      auto_merge_threshold: project.settings.validationTimeout || 30,
+      auto_merge_validated_pr: project.settings.autoMergeValidatedPR,
+      planning_statement: project.settings.planningStatement,
+      repository_rules: project.settings.repositoryRules,
+      setup_commands: project.settings.setupCommands,
+      setup_branch: project.settings.selectedBranch,
+      is_active: true,
+      status: 'active' as const,
+      validation_enabled: true,
+      has_repository_rules: !!project.settings.repositoryRules,
+      has_setup_commands: !!project.settings.setupCommands,
+      has_secrets: Object.keys(project.settings.secrets || {}).length > 0,
+      has_planning_statement: !!project.settings.planningStatement,
+      current_agent_run: project.currentWorkflow ? {
+        id: project.currentWorkflow.id,
+        status: convertStatus(project.currentWorkflow.status) as any,
+        run_type: convertRunType(project.currentWorkflow.agentRunType) as any,
+        progress_percentage: 0,
+        current_step: project.currentWorkflow.stage,
+      } : undefined,
+      last_run_at: project.currentWorkflow?.startedAt,
+      total_runs: project.stats.totalRuns,
+      success_rate: project.stats.totalRuns > 0 ? (project.stats.successfulRuns / project.stats.totalRuns) * 100 : 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  };
+
   return (
     <>
       <Card
@@ -261,17 +345,17 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
           height: '100%',
           display: 'flex',
           flexDirection: 'column',
-          border: isSelected ? 2 : 1,
-          borderColor: isSelected ? 'primary.main' : 'divider',
+          border: 1,
+          borderColor: 'divider',
           cursor: 'pointer',
           transition: 'all 0.2s ease-in-out',
           '&:hover': {
             elevation: 4,
             transform: 'translateY(-2px)',
           },
-          backgroundColor: hasRepositoryRules ? 'action.hover' : 'background.paper',
+          backgroundColor: project.settings.repositoryRules ? 'action.hover' : 'background.paper',
         }}
-        onClick={onSelect}
+
       >
         <CardContent sx={{ flexGrow: 1, pb: 1 }}>
           {/* Header */}
@@ -283,7 +367,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
               size="small"
               onClick={(e) => {
                 e.stopPropagation();
-                handleMenuClick(e);
+                handleMenuOpen(e);
               }}
             >
               <MoreVertIcon />
@@ -294,20 +378,20 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
           <Box display="flex" alignItems="center" mb={2}>
             <GitHubIcon sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
             <Typography variant="body2" color="text.secondary" noWrap>
-              {project.github_owner}/{project.github_repo}
+              {project.owner}/{project.repo}
             </Typography>
           </Box>
 
           {/* Status Indicators */}
           <Box display="flex" flexWrap="wrap" gap={1} mb={2}>
             <Chip
-              icon={getStatusIcon()}
+              icon={getStatusIcon(project.status)}
               label={project.status}
-              color={getStatusColor()}
+              color={getStatusColor(project.status)}
               size="small"
             />
             
-            {project.auto_merge_enabled && (
+            {project.settings.autoMergeValidatedPR && (
               <Chip
                 icon={<AutoModeIcon />}
                 label="Auto-merge"
@@ -317,7 +401,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
               />
             )}
             
-            {project.auto_confirm_plans && (
+            {project.settings.autoConfirmPlan && (
               <Chip
                 label="Auto-confirm"
                 color="secondary"
@@ -328,32 +412,32 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
           </Box>
 
           {/* Progress Indicators */}
-          {runningRuns.length > 0 && (
+          {(project.currentWorkflow || project.activePRs.length > 0) && (
             <Box mb={2}>
               <Typography variant="body2" color="text.secondary" gutterBottom>
-                Agent runs in progress: {runningRuns.length}
+                {project.currentWorkflow ? 'Workflow in progress' : `Active PRs: ${project.activePRs.length}`}
               </Typography>
               <LinearProgress />
             </Box>
           )}
 
           {/* Recent Activity */}
-          {recentPRs.length > 0 && (
+          {project.activePRs.length > 0 && (
             <Box mb={1}>
               <Typography variant="body2" color="text.secondary" gutterBottom>
                 Recent PRs:
               </Typography>
-              {recentPRs.slice(0, 2).map((run) => (
-                <Box key={run.id} display="flex" alignItems="center" mb={0.5}>
+              {project.activePRs.slice(0, 2).map((pr) => (
+                <Box key={pr.id} display="flex" alignItems="center" mb={0.5}>
                   <Badge
-                    badgeContent={run.pr_number}
+                    badgeContent={pr.number}
                     color="primary"
                     sx={{ mr: 1 }}
                   >
                     <GitHubIcon sx={{ fontSize: 16 }} />
                   </Badge>
                   <Typography variant="body2" noWrap sx={{ flexGrow: 1 }}>
-                    {run.target_text.substring(0, 30)}...
+                    {pr.title.substring(0, 30)}...
                   </Typography>
                 </Box>
               ))}
@@ -361,7 +445,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
           )}
 
           {/* Error Messages */}
-          {hasErrors && (
+          {project.status === ProjectStatus.ERROR && (
             <Alert severity="error" sx={{ mt: 1 }}>
               Some agent runs have failed. Check logs for details.
             </Alert>
@@ -371,12 +455,17 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         <CardActions sx={{ pt: 0, px: 2, pb: 2 }}>
           <Button
             variant="contained"
-            startIcon={<PlayIcon />}
+            startIcon={<PlayArrowIcon />}
             onClick={(e) => {
               e.stopPropagation();
-              handleAgentRunStart();
+              createWorkflow(
+                project.id,
+                'Quick workflow run',
+                project.settings.planningStatement,
+                'manual'
+              );
             }}
-            disabled={loading}
+            disabled={hasActiveWorkflow}
             fullWidth
           >
             Agent Run
@@ -386,34 +475,34 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
 
       {/* Context Menu */}
       <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
+        anchorEl={menuAnchor}
+        open={Boolean(menuAnchor)}
         onClose={handleMenuClose}
       >
-        <MenuItem onClick={() => { handleMenuClose(); onOpenConfig(); }}>
+        <MenuItem onClick={() => { handleMenuClose(); setShowSettings(true); }}>
           <SettingsIcon sx={{ mr: 1 }} />
           Settings
         </MenuItem>
-        <MenuItem onClick={() => { handleMenuClose(); handleToggleAutoMerge(); }}>
+        <MenuItem onClick={() => { handleMenuClose(); handleAutoMergeToggle(!project.settings.autoMergeValidatedPR); }}>
           <AutoModeIcon sx={{ mr: 1 }} />
-          {project.auto_merge_enabled ? 'Disable' : 'Enable'} Auto-merge
+          {project.settings.autoMergeValidatedPR ? 'Disable' : 'Enable'} Auto-merge
         </MenuItem>
-        <MenuItem onClick={() => { handleMenuClose(); handleToggleAutoConfirm(); }}>
+        <MenuItem onClick={() => { handleMenuClose(); updateSettings(project.id, { autoConfirmPlan: !project.settings.autoConfirmPlan }); }}>
           <CheckCircleIcon sx={{ mr: 1 }} />
-          {project.auto_confirm_plans ? 'Disable' : 'Enable'} Auto-confirm
+          {project.settings.autoConfirmPlan ? 'Disable' : 'Enable'} Auto-confirm
         </MenuItem>
-        <MenuItem onClick={() => { handleMenuClose(); onDelete(); }} sx={{ color: 'error.main' }}>
+        <MenuItem onClick={() => { handleMenuClose(); handleDeleteProject(); }} sx={{ color: 'error.main' }}>
           Delete Project
         </MenuItem>
       </Menu>
 
       {/* Agent Run Dialog */}
       <AgentRunDialog
-        open={agentRunDialogOpen}
-        onClose={() => setAgentRunDialogOpen(false)}
-        onSubmit={handleAgentRunCreate}
-        project={project}
-        loading={loading}
+        open={showAgentRun}
+        onClose={() => setShowAgentRun(false)}
+        onSubmit={handleAgentRunDialogSubmit}
+        project={convertToApiProject(project)}
+        loading={hasActiveWorkflow}
       />
     </>
   );

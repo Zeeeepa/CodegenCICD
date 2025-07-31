@@ -785,6 +785,15 @@ export default CodegenClient;
 
 // Re-export everything for convenience
 export * from './codegenTypes';
-export * from './codegenErrors';
+export { 
+  CodegenAPIError as CodegenAPIErrorClass,
+  RateLimitError,
+  AuthenticationError,
+  NotFoundError,
+  ConflictError,
+  ServerError,
+  TimeoutError,
+  NetworkError
+} from './codegenErrors';
 export * from './codegenUtils';
 export * from './codegenConfig';

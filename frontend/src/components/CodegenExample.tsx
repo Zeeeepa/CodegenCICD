@@ -29,7 +29,7 @@ import {
   PlayArrow as PlayArrowIcon,
   Stop as StopIcon,
   Refresh as RefreshIcon,
-  Health as HealthIcon,
+  LocalHospital as HealthIcon,
   Code as CodeIcon,
   Timeline as TimelineIcon
 } from '@mui/icons-material';
