@@ -110,13 +110,26 @@ setup_backend() {
             print_error "sudo apt install python3-venv"
             exit 1
         fi
+        
+        # Wait a moment for filesystem to sync
+        sleep 1
+        
+        # Verify the virtual environment was created successfully
+        if [ ! -f "venv/bin/activate" ]; then
+            print_error "Virtual environment was created but activation script is missing!"
+            print_error "This might be a filesystem sync issue. Please try running the script again."
+            exit 1
+        fi
     fi
     
     # Activate virtual environment
     if [ -f "venv/bin/activate" ]; then
         source venv/bin/activate
+        print_status "Virtual environment activated successfully"
     else
         print_error "Virtual environment activation script not found!"
+        print_error "Directory contents:"
+        ls -la venv/ 2>/dev/null || echo "venv directory does not exist"
         exit 1
     fi
     
