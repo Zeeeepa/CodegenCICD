@@ -233,11 +233,38 @@ class CodegenClient(BaseClient):
                                 error=str(e))
                 raise
     
-    async def get_run_logs(self, run_id: str) -> List[Dict[str, Any]]:
-        """Get logs for an agent run"""
+    async def get_run_logs(self, 
+                          run_id: str, 
+                          skip: int = 0, 
+                          limit: int = 100) -> Dict[str, Any]:
+        """Get logs for an agent run with pagination
+        
+        Args:
+            run_id: The ID of the agent run
+            skip: Number of logs to skip for pagination (default: 0)
+            limit: Maximum number of logs to return (default: 100, max: 100)
+            
+        Returns:
+            Dict containing agent run details and paginated logs
+        """
         try:
-            response = await self.get(f"/organizations/{self.org_id}/agent-runs/{run_id}/logs")
-            return response.get("logs", [])
+            params = {
+                "skip": skip,
+                "limit": min(limit, 100)  # Enforce API limit
+            }
+            
+            response = await self.get(
+                f"/organizations/{self.org_id}/agent/run/{run_id}/logs",
+                params=params
+            )
+            
+            self.logger.info("Retrieved agent run logs",
+                           run_id=run_id,
+                           total_logs=response.get("total_logs", 0),
+                           page=response.get("page", 1))
+            
+            return response
+            
         except Exception as e:
             self.logger.error("Failed to get agent run logs",
                             run_id=run_id,
@@ -254,6 +281,80 @@ class CodegenClient(BaseClient):
                             run_id=run_id,
                             error=str(e))
             raise
+    
+    async def get_run_logs_all(self, run_id: str) -> List[Dict[str, Any]]:
+        """Get all logs for an agent run (handles pagination automatically)"""
+        all_logs = []
+        skip = 0
+        limit = 100
+        
+        try:
+            while True:
+                response = await self.get_run_logs(run_id, skip=skip, limit=limit)
+                logs = response.get("logs", [])
+                
+                if not logs:
+                    break
+                    
+                all_logs.extend(logs)
+                
+                # Check if we've retrieved all logs
+                total_logs = response.get("total_logs", 0)
+                if len(all_logs) >= total_logs:
+                    break
+                    
+                skip += limit
+            
+            self.logger.info("Retrieved all agent run logs",
+                           run_id=run_id,
+                           total_logs=len(all_logs))
+            
+            return all_logs
+            
+        except Exception as e:
+            self.logger.error("Failed to get all agent run logs",
+                            run_id=run_id,
+                            error=str(e))
+            raise
+    
+    async def get_run_logs_by_type(self, 
+                                  run_id: str, 
+                                  message_types: List[str]) -> List[Dict[str, Any]]:
+        """Get logs filtered by message type(s)
+        
+        Args:
+            run_id: The ID of the agent run
+            message_types: List of message types to filter by (e.g., ['ACTION', 'ERROR'])
+        """
+        try:
+            all_logs = await self.get_run_logs_all(run_id)
+            filtered_logs = [
+                log for log in all_logs 
+                if log.get("message_type") in message_types
+            ]
+            
+            self.logger.info("Filtered agent run logs by type",
+                           run_id=run_id,
+                           message_types=message_types,
+                           filtered_count=len(filtered_logs),
+                           total_count=len(all_logs))
+            
+            return filtered_logs
+            
+        except Exception as e:
+            self.logger.error("Failed to get filtered agent run logs",
+                            run_id=run_id,
+                            message_types=message_types,
+                            error=str(e))
+            raise
+    
+    async def get_run_errors(self, run_id: str) -> List[Dict[str, Any]]:
+        """Get only error logs for an agent run"""
+        return await self.get_run_logs_by_type(run_id, ["ERROR"])
+    
+    async def get_run_actions(self, run_id: str) -> List[Dict[str, Any]]:
+        """Get only action logs for an agent run"""
+        return await self.get_run_logs_by_type(run_id, ["ACTION"])
     
     # Error Recovery
     async def create_error_fix_run(self,
@@ -290,4 +391,3 @@ class CodegenClient(BaseClient):
                             original_run_id=original_run_id,
                             error=str(e))
             raise
-
