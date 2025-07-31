@@ -1,13 +1,9 @@
 """
-Service layer for CodegenCICD Dashboard
+Services package for business logic
 """
-from .base_service import BaseService
-from .websocket_service import WebSocketService
-from .notification_service import NotificationService
+from .database_service import DatabaseService
 
 __all__ = [
-    "BaseService",
-    "WebSocketService", 
-    "NotificationService",
+    'DatabaseService'
 ]
 

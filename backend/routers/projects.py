@@ -2,16 +2,16 @@
 Project management API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 import structlog
 from datetime import datetime
 
-from backend.database import get_db_session
-from backend.models.project import Project, ProjectSecret, ProjectAgentRun
+from backend.dependencies import get_database_service_dependency, get_project_repository_dependency
+from backend.services.database_service import DatabaseService
+from backend.repositories.project_repository import ProjectRepository
+from backend.models.project import Project
 from backend.integrations.github_client import GitHubClient
 from backend.integrations.codegen_client import CodegenClient
-from backend.services.webhook_service import WebhookService
 from backend.config import get_settings
 
 logger = structlog.get_logger(__name__)
@@ -76,69 +76,81 @@ async def list_github_repos(db: Session = Depends(get_db_session)):
 async def create_project(
     request: ProjectCreateRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db_session)
+    db_service: DatabaseService = Depends(get_database_service_dependency),
+    project_repo: ProjectRepository = Depends(get_project_repository_dependency)
 ):
     """Create/pin a new project"""
     try:
         # Check if project already exists
-        existing = db.query(Project).filter(Project.github_id == request.github_id).first()
+        existing = project_repo.get_by_github_repo(request.github_owner, request.github_repo)
         if existing:
-            if not existing.is_active:
-                existing.is_active = True
-                existing.pinned_at = datetime.utcnow()
-                db.commit()
-                return {"project": existing.to_dict()}
-            else:
-                raise HTTPException(status_code=409, detail="Project already pinned")
+            raise HTTPException(status_code=409, detail="Project already exists")
         
-        # Create new project
-        project = Project(
-            github_id=request.github_id,
-            name=request.name,
-            full_name=request.full_name,
-            description=request.description,
-            github_owner=request.github_owner,
-            github_repo=request.github_repo,
-            github_url=request.github_url,
-            default_branch=request.default_branch,
-            webhook_url=settings.cloudflare_worker_url,
-        )
+        # Prepare project data
+        project_data = {
+            'name': request.name,
+            'github_owner': request.github_owner,
+            'github_repo': request.github_repo,
+            'status': 'active',
+            'webhook_url': settings.cloudflare_worker_url,
+            'auto_merge_enabled': False,
+            'auto_confirm_plans': False
+        }
         
-        db.add(project)
-        db.commit()
-        db.refresh(project)
+        # Create project with default settings
+        settings_data = {
+            'planning_statement': None,
+            'repository_rules': None,
+            'setup_commands': None,
+            'branch_name': request.default_branch
+        }
+        
+        project = await db_service.create_project_with_settings(project_data, settings_data)
+        
+        if not project:
+            raise HTTPException(status_code=500, detail="Failed to create project")
         
         # Set up webhook in background
-        background_tasks.add_task(setup_project_webhook, project.id)
+        if project.id:
+            background_tasks.add_task(setup_project_webhook, project.id)
         
         logger.info("Project created", project_id=project.id, name=project.name)
-        return {"project": project.to_dict()}
+        return {"project": project.dict()}
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Failed to create project", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/")
-async def list_projects(db: Session = Depends(get_db_session)):
-    """List all pinned projects"""
+async def list_projects(
+    db_service: DatabaseService = Depends(get_database_service_dependency)
+):
+    """List all active projects with statistics"""
     try:
-        projects = db.query(Project).filter(Project.is_active == True).all()
-        return {"projects": [p.to_dict() for p in projects]}
+        projects = await db_service.search_projects_with_stats()
+        return {"projects": projects}
     except Exception as e:
         logger.error("Failed to list projects", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{project_id}")
-async def get_project(project_id: int, db: Session = Depends(get_db_session)):
-    """Get project details"""
+async def get_project(
+    project_id: int, 
+    db_service: DatabaseService = Depends(get_database_service_dependency)
+):
+    """Get project details with full configuration"""
     try:
-        project = db.query(Project).filter(Project.id == project_id).first()
-        if not project:
+        project_config = await db_service.get_project_full_config(project_id)
+        if not project_config:
             raise HTTPException(status_code=404, detail="Project not found")
         
-        return {"project": project.to_dict()}
+        return {"project": project_config}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Failed to get project", project_id=project_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
@@ -519,4 +531,3 @@ async def execute_setup_commands(project_id: int):
             
     except Exception as e:
         logger.error("Failed to execute setup commands", project_id=project_id, error=str(e))
-
