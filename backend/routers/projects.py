@@ -3,6 +3,7 @@ Project management API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from typing import List, Dict, Any, Optional
+from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 from datetime import datetime
 
@@ -12,6 +13,7 @@ from backend.repositories.project_repository import ProjectRepository
 from backend.models.project import Project
 from backend.integrations.github_client import GitHubClient
 from backend.integrations.codegen_client import CodegenClient
+from backend.database import get_db
 from backend.config import get_settings
 
 logger = structlog.get_logger(__name__)
@@ -52,7 +54,7 @@ class AgentRunContinueRequest(BaseModel):
 
 
 @router.get("/github-repos")
-async def list_github_repos(db: Session = Depends(get_db_session)):
+async def list_github_repos(db: AsyncSession = Depends(get_db)):
     """List available GitHub repositories"""
     try:
         github_client = GitHubClient()
@@ -160,7 +162,7 @@ async def get_project(
 async def update_project(
     project_id: int,
     request: ProjectUpdateRequest,
-    db: Session = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db)
 ):
     """Update project settings"""
     try:
@@ -185,7 +187,7 @@ async def update_project(
 
 
 @router.delete("/{project_id}")
-async def delete_project(project_id: int, db: Session = Depends(get_db_session)):
+async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
     """Unpin/deactivate a project"""
     try:
         project = db.query(Project).filter(Project.id == project_id).first()
@@ -205,7 +207,7 @@ async def delete_project(project_id: int, db: Session = Depends(get_db_session))
 
 # Project Secrets Management
 @router.get("/{project_id}/secrets")
-async def list_project_secrets(project_id: int, db: Session = Depends(get_db_session)):
+async def list_project_secrets(project_id: int, db: AsyncSession = Depends(get_db)):
     """List project secrets"""
     try:
         project = db.query(Project).filter(Project.id == project_id).first()
@@ -224,7 +226,7 @@ async def list_project_secrets(project_id: int, db: Session = Depends(get_db_ses
 async def create_project_secret(
     project_id: int,
     request: SecretCreateRequest,
-    db: Session = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db)
 ):
     """Create a project secret"""
     try:
@@ -265,7 +267,7 @@ async def create_project_secret(
 async def delete_project_secret(
     project_id: int,
     secret_id: int,
-    db: Session = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db)
 ):
     """Delete a project secret"""
     try:
@@ -293,7 +295,7 @@ async def create_agent_run(
     project_id: int,
     request: AgentRunRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db)
 ):
     """Create a new agent run for the project"""
     try:
@@ -323,7 +325,7 @@ async def create_agent_run(
 
 
 @router.get("/{project_id}/agent-runs")
-async def list_agent_runs(project_id: int, db: Session = Depends(get_db_session)):
+async def list_agent_runs(project_id: int, db: AsyncSession = Depends(get_db)):
     """List agent runs for the project"""
     try:
         runs = db.query(ProjectAgentRun).filter(
@@ -341,7 +343,7 @@ async def list_agent_runs(project_id: int, db: Session = Depends(get_db_session)
 async def get_agent_run(
     project_id: int,
     run_id: int,
-    db: Session = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db)
 ):
     """Get agent run details"""
     try:
@@ -366,7 +368,7 @@ async def continue_agent_run(
     run_id: int,
     request: AgentRunContinueRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db)
 ):
     """Continue an agent run with additional input"""
     try:
@@ -395,7 +397,7 @@ async def continue_agent_run(
 async def run_setup_commands(
     project_id: int,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db)
 ):
     """Run setup commands for the project"""
     try:
@@ -420,7 +422,7 @@ async def run_setup_commands(
 async def setup_project_webhook(project_id: int):
     """Set up GitHub webhook for the project"""
     try:
-        async with get_db_session() as db:
+        async with get_db() as db:
             project = db.query(Project).filter(Project.id == project_id).first()
             if not project:
                 return
@@ -444,7 +446,7 @@ async def setup_project_webhook(project_id: int):
 async def execute_agent_run(agent_run_id: int):
     """Execute agent run via Codegen API"""
     try:
-        async with get_db_session() as db:
+        async with get_db() as db:
             run = db.query(ProjectAgentRun).filter(ProjectAgentRun.id == agent_run_id).first()
             if not run:
                 return
@@ -484,7 +486,7 @@ async def execute_agent_run(agent_run_id: int):
     except Exception as e:
         logger.error("Failed to execute agent run", agent_run_id=agent_run_id, error=str(e))
         # Update run status to failed
-        async with get_db_session() as db:
+        async with get_db() as db:
             run = db.query(ProjectAgentRun).filter(ProjectAgentRun.id == agent_run_id).first()
             if run:
                 run.status = "failed"
@@ -494,7 +496,7 @@ async def execute_agent_run(agent_run_id: int):
 async def continue_agent_run_task(agent_run_id: int, message: str):
     """Continue agent run with additional message"""
     try:
-        async with get_db_session() as db:
+        async with get_db() as db:
             run = db.query(ProjectAgentRun).filter(ProjectAgentRun.id == agent_run_id).first()
             if not run or not run.codegen_run_id:
                 return
@@ -520,7 +522,7 @@ async def continue_agent_run_task(agent_run_id: int, message: str):
 async def execute_setup_commands(project_id: int):
     """Execute setup commands for the project"""
     try:
-        async with get_db_session() as db:
+        async with get_db() as db:
             project = db.query(Project).filter(Project.id == project_id).first()
             if not project or not project.setup_commands:
                 return
