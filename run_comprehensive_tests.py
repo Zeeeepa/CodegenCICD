@@ -13,14 +13,14 @@ async def run_tests():
     
     # Test payload
     test_payload = {
-        "base_url": "http://localhost:3000",
+        "base_url": "http://localhost:8000",
         "gemini_api_key": "AIzaSyBXmhlHudrD4zXiv-5fjxi1gGG-_kdtaZ0",
         "scenarios": [
             {
                 "name": "Homepage Load Test",
                 "description": "Test dashboard homepage loading and basic elements",
                 "actions": [
-                    {"type": "navigate", "url": "http://localhost:3000"},
+                    {"type": "navigate", "url": "http://localhost:8000"},
                     {"type": "wait", "selector": "[data-testid='dashboard-header']", "timeout": 10},
                     {"type": "check_element", "selector": "h1", "expected_text": "CodegenCICD Dashboard"},
                     {"type": "screenshot", "name": "homepage_loaded"}
@@ -30,7 +30,7 @@ async def run_tests():
                 "name": "Project Selector Test",
                 "description": "Test GitHub project selector dropdown functionality",
                 "actions": [
-                    {"type": "navigate", "url": "http://localhost:3000"},
+                    {"type": "navigate", "url": "http://localhost:8000"},
                     {"type": "wait", "selector": "[data-testid='project-selector']", "timeout": 10},
                     {"type": "click", "selector": "[data-testid='project-selector']"},
                     {"type": "screenshot", "name": "project_selector_open"}
@@ -117,13 +117,13 @@ async def test_individual_components():
     components = [
         {
             "name": "Dashboard Component",
-            "url": "http://localhost:3000",
+            "url": "http://localhost:8000",
             "component": "dashboard",
             "checks": ["header_present", "project_selector_visible", "navigation_functional"]
         },
         {
             "name": "Project Cards",
-            "url": "http://localhost:3000",
+            "url": "http://localhost:8000",
             "component": "project_cards", 
             "checks": ["cards_render", "run_button_functional", "settings_button_functional"]
         }
@@ -211,4 +211,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
