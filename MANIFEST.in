@@ -1,0 +1,72 @@
+# Include the README
+include README.md
+
+# Include the license
+include LICENSE
+
+# Include configuration files
+include *.yml
+include *.yaml
+include *.json
+include *.toml
+include *.cfg
+include *.ini
+
+# Include the CLI script
+include codegen_cli.py
+
+# Include web evaluation script
+include web_eval_test.py
+
+# Include test files
+include test_*.py
+include *test*.py
+include *test*.js
+
+# Include backend files
+recursive-include backend *.py
+recursive-include backend *.txt
+recursive-include backend *.sql
+recursive-include backend *.json
+recursive-include backend *.yml
+recursive-include backend *.yaml
+
+# Include frontend build files (if they exist)
+recursive-include frontend/build *
+recursive-include frontend/public *
+recursive-include frontend/src *
+include frontend/package*.json
+include frontend/*.json
+include frontend/*.js
+include frontend/*.ts
+
+# Include scripts
+recursive-include scripts *
+
+# Include documentation
+recursive-include docs *
+
+# Include Docker files
+include Dockerfile*
+include docker-compose*.yml
+include .dockerignore
+
+# Include CI/CD files
+recursive-include .github *
+
+# Include shell scripts
+include *.sh
+
+# Exclude unnecessary files
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.pyd
+global-exclude __pycache__
+global-exclude .git*
+global-exclude .DS_Store
+global-exclude *.so
+global-exclude .pytest_cache
+global-exclude node_modules
+global-exclude .env
+global-exclude *.log
+
