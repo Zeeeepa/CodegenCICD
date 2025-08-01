@@ -229,16 +229,37 @@ start_backend() {
     
     # Wait for backend to start
     print_info "Waiting for backend to start..."
-    for i in {1..30}; do
+    
+    # Give the process a moment to initialize
+    sleep 2
+    
+    # Check if the process is still running
+    if ! kill -0 $BACKEND_PID 2>/dev/null; then
+        print_error "Backend process died immediately after starting"
+        print_info "Check logs: tail -f logs/backend.log"
+        return 1
+    fi
+    
+    # Wait for health check to respond
+    for i in {1..45}; do
         if curl -s http://$BACKEND_HOST:$BACKEND_PORT/health > /dev/null 2>&1; then
             print_status "Backend started successfully (PID: $BACKEND_PID)"
             return 0
         fi
+        
+        # Check if process is still alive
+        if ! kill -0 $BACKEND_PID 2>/dev/null; then
+            print_error "Backend process died during startup"
+            print_info "Check logs: tail -f logs/backend.log"
+            return 1
+        fi
+        
         sleep 1
     done
     
-    print_error "Backend failed to start within 30 seconds"
+    print_error "Backend failed to start within 45 seconds"
     print_info "Check logs: tail -f logs/backend.log"
+    print_info "Process status: $(kill -0 $BACKEND_PID 2>/dev/null && echo 'running' || echo 'not running')"
     return 1
 }
 

@@ -217,7 +217,17 @@ def get_settings() -> Settings:
 
 def get_database_url() -> str:
     """Get database URL with proper formatting"""
-    return settings.database_url.replace("postgresql://", "postgresql+asyncpg://")
+    url = settings.database_url
+    
+    # Handle PostgreSQL async driver
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://")
+    
+    # Handle SQLite async driver
+    if url.startswith("sqlite:///"):
+        return url.replace("sqlite:///", "sqlite+aiosqlite:///")
+    
+    return url
 
 
 def get_redis_url() -> str:
