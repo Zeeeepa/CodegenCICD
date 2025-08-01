@@ -2,7 +2,7 @@
  * Utility classes for Codegen client
  */
 
-import { CacheStats, RateLimitUsage, RequestMetrics, ClientStats } from './codegenTypes';
+import { CacheStats, RateLimitUsage, RequestMetrics, ClientStats, WebhookHandler, WebhookMiddleware } from './codegenTypes';
 
 // ============================================================================
 // RATE LIMITER
@@ -138,12 +138,11 @@ export class CacheManager<T = any> {
 // WEBHOOK HANDLER
 // ============================================================================
 
-export type WebhookHandler = (payload: Record<string, any>) => void;
-export type WebhookMiddleware = (payload: Record<string, any>) => Record<string, any>;
+
 
 export class WebhookManager {
   private handlers = new Map<string, WebhookHandler[]>();
-  private middleware: WebhookMiddleware[] = [];
+  private middleware: ((payload: Record<string, any>) => Record<string, any>)[] = [];
   private secretKey?: string;
 
   constructor(secretKey?: string) {
@@ -158,7 +157,7 @@ export class WebhookManager {
     console.info(`Registered webhook handler for event type: ${eventType}`);
   }
 
-  registerMiddleware(middleware: WebhookMiddleware): void {
+  registerMiddleware(middleware: (payload: Record<string, any>) => Record<string, any>): void {
     this.middleware.push(middleware);
   }
 
@@ -346,7 +345,7 @@ export async function retryWithBackoff<T>(
 
       // Exponential backoff for other errors
       const sleepTime = baseDelay * Math.pow(backoffFactor, attempt);
-      console.warn(`Request failed (attempt ${attempt + 1}), retrying in ${sleepTime}ms:`, error.message);
+      console.warn(`Request failed (attempt ${attempt + 1}), retrying in ${sleepTime}ms:`, error instanceof Error ? error.message : String(error));
       await new Promise(resolve => setTimeout(resolve, sleepTime));
     }
   }

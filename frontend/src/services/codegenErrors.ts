@@ -1,105 +1,97 @@
 /**
- * Custom error classes for Codegen API
+ * Codegen API Error Classes
  */
 
-export class ValidationError extends Error {
-  public field_errors: Record<string, string[]>;
+export class CodegenError extends Error {
+  public statusCode?: number;
+  public response?: any;
 
-  constructor(message: string, field_errors: Record<string, string[]> = {}) {
+  constructor(message: string, statusCode?: number, response?: any) {
     super(message);
-    this.name = 'ValidationError';
-    this.field_errors = field_errors;
+    this.name = 'CodegenError';
+    this.statusCode = statusCode;
+    this.response = response;
   }
 }
 
-export class CodegenAPIError extends Error {
-  public status_code: number;
-  public response_data?: Record<string, any>;
-  public request_id?: string;
-
-  constructor(
-    message: string,
-    status_code: number = 0,
-    response_data?: Record<string, any>,
-    request_id?: string
-  ) {
-    super(message);
-    this.name = 'CodegenAPIError';
-    this.status_code = status_code;
-    this.response_data = response_data;
-    this.request_id = request_id;
-  }
-}
-
-export class RateLimitError extends CodegenAPIError {
-  public retry_after: number;
-
-  constructor(retry_after: number = 60, request_id?: string) {
-    super(`Rate limited. Retry after ${retry_after} seconds`, 429, undefined, request_id);
-    this.name = 'RateLimitError';
-    this.retry_after = retry_after;
-  }
-}
-
-export class AuthenticationError extends CodegenAPIError {
-  constructor(message: string = 'Authentication failed', request_id?: string) {
-    super(message, 401, undefined, request_id);
+export class AuthenticationError extends CodegenError {
+  constructor(message: string = 'Authentication failed') {
+    super(message, 401);
     this.name = 'AuthenticationError';
   }
 }
 
-export class NotFoundError extends CodegenAPIError {
-  constructor(message: string = 'Resource not found', request_id?: string) {
-    super(message, 404, undefined, request_id);
+export class AuthorizationError extends CodegenError {
+  constructor(message: string = 'Authorization failed') {
+    super(message, 403);
+    this.name = 'AuthorizationError';
+  }
+}
+
+export class NotFoundError extends CodegenError {
+  constructor(message: string = 'Resource not found') {
+    super(message, 404);
     this.name = 'NotFoundError';
   }
 }
 
-export class ConflictError extends CodegenAPIError {
-  constructor(message: string = 'Conflict occurred', request_id?: string) {
-    super(message, 409, undefined, request_id);
-    this.name = 'ConflictError';
+export class RateLimitError extends CodegenError {
+  public retryAfter?: number;
+
+  constructor(message: string = 'Rate limit exceeded', retryAfter?: number) {
+    super(message, 429);
+    this.name = 'RateLimitError';
+    this.retryAfter = retryAfter;
   }
 }
 
-export class ServerError extends CodegenAPIError {
-  constructor(
-    message: string = 'Server error occurred',
-    status_code: number = 500,
-    request_id?: string
-  ) {
-    super(message, status_code, undefined, request_id);
-    this.name = 'ServerError';
+export class ValidationError extends CodegenError {
+  public errors?: Record<string, string[]>;
+
+  constructor(message: string = 'Validation failed', errors?: Record<string, string[]>) {
+    super(message, 422);
+    this.name = 'ValidationError';
+    this.errors = errors;
   }
 }
 
-export class TimeoutError extends CodegenAPIError {
-  constructor(message: string = 'Request timed out', request_id?: string) {
-    super(message, 408, undefined, request_id);
-    this.name = 'TimeoutError';
+export class BulkOperationError extends CodegenError {
+  public failedItems?: any[];
+
+  constructor(message: string = 'Bulk operation failed', failedItems?: any[]) {
+    super(message, 400);
+    this.name = 'BulkOperationError';
+    this.failedItems = failedItems;
   }
 }
 
-export class NetworkError extends CodegenAPIError {
-  constructor(message: string = 'Network error occurred', request_id?: string) {
-    super(message, 0, undefined, request_id);
+export class NetworkError extends CodegenError {
+  constructor(message: string = 'Network error occurred') {
+    super(message);
     this.name = 'NetworkError';
   }
 }
 
-export class WebhookError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'WebhookError';
+export class ConflictError extends CodegenError {
+  constructor(message: string = 'Conflict occurred') {
+    super(message, 409);
+    this.name = 'ConflictError';
   }
 }
 
-export class BulkOperationError extends Error {
-  public failed_items: any[];
-
-  constructor(message: string, failed_items: any[] = []) {
-    super(message);
-    this.name = 'BulkOperationError';
-    this.failed_items = failed_items;
+export class ServerError extends CodegenError {
+  constructor(message: string = 'Internal server error') {
+    super(message, 500);
+    this.name = 'ServerError';
   }
 }
+
+export class TimeoutError extends CodegenError {
+  constructor(message: string = 'Request timeout') {
+    super(message);
+    this.name = 'TimeoutError';
+  }
+}
+
+// Alias for backward compatibility
+export { CodegenError as CodegenAPIError };

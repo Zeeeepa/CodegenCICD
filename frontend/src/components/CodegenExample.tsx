@@ -27,9 +27,8 @@ import {
 import {
   ExpandMore as ExpandMoreIcon,
   PlayArrow as PlayArrowIcon,
-  Stop as StopIcon,
   Refresh as RefreshIcon,
-  Health as HealthIcon,
+  LocalHospital as HealthIcon,
   Code as CodeIcon,
   Timeline as TimelineIcon
 } from '@mui/icons-material';
@@ -43,7 +42,6 @@ import {
   useAgentRuns,
   useAgentRunLogs,
   useBulkOperations,
-  useStreamingAgentRuns,
   useWebhooks,
   useHealthCheck
 } from '../hooks/useCodegenClient';
@@ -57,8 +55,8 @@ const CodegenExample: React.FC = () => {
   const [selectedAgentRunId, setSelectedAgentRunId] = useState<number | null>(null);
 
   // Initialize client with development config
-  const { client, isConnected, isConnecting, error: clientError, stats, connect, refreshStats } = useCodegenClient({
-    config: ConfigPresets.development(),
+  const { isConnected, isConnecting, error: clientError, stats, connect, refreshStats } = useCodegenClient({
+    config: ConfigPresets.development,
     autoConnect: true
   });
 
@@ -67,10 +65,10 @@ const CodegenExample: React.FC = () => {
   const { organizations, loading: orgsLoading, error: orgsError } = useOrganizations();
 
   // Agent run operations
-  const { createAgentRun, resumeAgentRun, loading: createLoading, error: createError } = useCreateAgentRun();
+  const { createAgentRun, loading: createLoading, error: createError } = useCreateAgentRun();
 
   // Health monitoring
-  const { health, loading: healthLoading, checkHealth } = useHealthCheck(30000);
+  const { health } = useHealthCheck(30000);
 
   // Webhooks
   const { events: webhookEvents, registerHandler, clearEvents } = useWebhooks();
@@ -121,20 +119,7 @@ const CodegenExample: React.FC = () => {
     await bulkCreateAgentRuns(selectedOrgId, configs);
   };
 
-  const getStatusColor = (status?: string) => {
-    switch (status) {
-      case AgentRunStatus.COMPLETED:
-        return 'success';
-      case AgentRunStatus.FAILED:
-        return 'error';
-      case AgentRunStatus.RUNNING:
-        return 'primary';
-      case AgentRunStatus.PENDING:
-        return 'warning';
-      default:
-        return 'default';
-    }
-  };
+
 
   return (
     <Box sx={{ p: 3, maxWidth: 1200, mx: 'auto' }}>
@@ -179,7 +164,7 @@ const CodegenExample: React.FC = () => {
 
               {clientError && (
                 <Alert severity="error" sx={{ mt: 1 }}>
-                  {clientError.message}
+                  {clientError}
                 </Alert>
               )}
             </CardContent>
@@ -212,7 +197,7 @@ const CodegenExample: React.FC = () => {
 
               {userError && (
                 <Alert severity="error" sx={{ mt: 1 }}>
-                  {userError.message}
+                  {userError}
                 </Alert>
               )}
             </CardContent>
@@ -247,7 +232,7 @@ const CodegenExample: React.FC = () => {
 
               {orgsError && (
                 <Alert severity="error" sx={{ mt: 1 }}>
-                  {orgsError.message}
+                  {orgsError}
                 </Alert>
               )}
             </CardContent>
@@ -308,13 +293,13 @@ const CodegenExample: React.FC = () => {
 
               {createError && (
                 <Alert severity="error">
-                  {createError.message}
+                  {createError}
                 </Alert>
               )}
 
               {bulkError && (
                 <Alert severity="error">
-                  {bulkError.message}
+                  {bulkError}
                 </Alert>
               )}
             </CardContent>
@@ -443,7 +428,7 @@ const AgentRunsList: React.FC<{ orgId: number; onSelectRun: (id: number) => void
         
         {error && (
           <Alert severity="error">
-            {error.message}
+            {error}
           </Alert>
         )}
 
@@ -526,7 +511,7 @@ const AgentRunDetails: React.FC<{ orgId: number; agentRunId: number }> = ({ orgI
         
         {error && (
           <Alert severity="error">
-            {error.message}
+            {error}
           </Alert>
         )}
 
@@ -604,7 +589,7 @@ const AgentRunDetails: React.FC<{ orgId: number; agentRunId: number }> = ({ orgI
                 </AccordionSummary>
                 <AccordionDetails>
                   {logsLoading && <CircularProgress size={24} />}
-                  {logsError && <Alert severity="error">{logsError.message}</Alert>}
+                  {logsError && <Alert severity="error">{logsError}</Alert>}
                   
                   <List sx={{ maxHeight: 400, overflow: 'auto' }}>
                     {logs.logs.map((log, index) => (
