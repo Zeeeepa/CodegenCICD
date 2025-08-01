@@ -199,26 +199,29 @@ export interface Webhook {
 }
 
 export interface CacheStats {
+  size: number;
+  max_size: number;
   hits: number;
   misses: number;
-  size: number;
-  maxSize: number;
-  hitRate: number;
+  hit_rate_percentage: number;
+  ttl_seconds: number;
 }
 
 export interface RateLimitUsage {
-  requests: number;
-  limit: number;
-  remaining: number;
-  resetTime: number;
+  current_requests: number;
+  max_requests: number;
+  period_seconds: number;
+  usage_percentage: number;
 }
 
 export interface RequestMetrics {
-  totalRequests: number;
-  successfulRequests: number;
-  failedRequests: number;
-  averageResponseTime: number;
-  requestsPerSecond: number;
+  method: string;
+  endpoint: string;
+  status_code: number;
+  duration_seconds: number;
+  timestamp: string;
+  request_id: string;
+  cached: boolean;
 }
 
 export interface ClientStats {
@@ -230,6 +233,7 @@ export interface ClientStats {
   average_response_time: number;
   cache_hit_rate: number;
   status_code_distribution: Record<string, number>;
+  recent_requests: RequestMetrics[];
   cache?: CacheStats;
   rateLimit?: RateLimitUsage;
   metrics?: RequestMetrics;

@@ -25,7 +25,8 @@ import {
   HealthCheckResponse,
   SourceType,
   AgentRunStatus,
-  ProgressCallback
+  ProgressCallback,
+  WebhookMiddleware
 } from './codegenTypes';
 
 import {
@@ -620,7 +621,7 @@ export class CodegenClient {
     this.webhookManager.registerHandler(eventType, handler);
   }
 
-  registerWebhookMiddleware(middleware: WebhookMiddleware): void {
+  registerWebhookMiddleware(middleware: (payload: Record<string, any>) => Record<string, any>): void {
     if (!this.webhookManager) {
       throw new Error('Webhooks are disabled. Enable them in configuration.');
     }
