@@ -1,0 +1,298 @@
+{
+  "web_eval_agent_environment_variables": {
+    "description": "Environment variables required for web-eval-agent CICD cycle testing",
+    "categories": {
+      "codegen_integration": {
+        "title": "Codegen API Integration",
+        "description": "Variables for connecting to Codegen API services",
+        "required": true,
+        "variables": {
+          "CODEGEN_ORG_ID": {
+            "title": "Codegen Organization ID",
+            "description": "Your Codegen organization ID (usually numeric)",
+            "type": "text",
+            "required": true,
+            "default": "323",
+            "validation": "^[0-9]+$",
+            "example": "323"
+          },
+          "CODEGEN_API_TOKEN": {
+            "title": "Codegen API Token",
+            "description": "Your Codegen API authentication token",
+            "type": "password",
+            "required": true,
+            "validation": "^sk-[a-zA-Z0-9-]+$",
+            "example": "sk-ce027fa7-3c8d-4beb-8c86-ed8ae982ac99"
+          }
+        }
+      },
+      "github_integration": {
+        "title": "GitHub Integration",
+        "description": "Variables for GitHub repository management and webhooks",
+        "required": true,
+        "variables": {
+          "GITHUB_TOKEN": {
+            "title": "GitHub Personal Access Token",
+            "description": "GitHub PAT with repo and webhook permissions",
+            "type": "password",
+            "required": true,
+            "validation": "^github_pat_[a-zA-Z0-9_]+$",
+            "example": "github_pat_11BPJSHDQ0NtZCMz6IlJDQ_..."
+          }
+        }
+      },
+      "web_eval_agent": {
+        "title": "Web-Eval-Agent Configuration",
+        "description": "Variables for browser automation and UI testing",
+        "required": true,
+        "variables": {
+          "GEMINI_API_KEY": {
+            "title": "Gemini API Key",
+            "description": "Google Gemini API key for AI-powered web evaluation",
+            "type": "password",
+            "required": true,
+            "validation": "^AIzaSy[a-zA-Z0-9_-]+$",
+            "example": "AIzaSyBXmhlHudrD4zXiv-5fjxi1gGG-_kdtaZ0"
+          },
+          "WEB_EVAL_AGENT_URL": {
+            "title": "Web-Eval-Agent API URL",
+            "description": "URL of the web-eval-agent service",
+            "type": "url",
+            "required": false,
+            "default": "http://localhost:8003",
+            "example": "http://localhost:8003"
+          },
+          "WEB_EVAL_AGENT_ENABLED": {
+            "title": "Enable Web-Eval-Agent",
+            "description": "Enable or disable web-eval-agent testing",
+            "type": "boolean",
+            "required": false,
+            "default": "true",
+            "options": ["true", "false"]
+          }
+        }
+      },
+      "cloudflare_services": {
+        "title": "Cloudflare Services",
+        "description": "Variables for Cloudflare Workers and webhook gateway",
+        "required": true,
+        "variables": {
+          "CLOUDFLARE_API_KEY": {
+            "title": "Cloudflare API Key",
+            "description": "Cloudflare Global API Key for worker management",
+            "type": "password",
+            "required": true,
+            "validation": "^[a-f0-9]{37}$",
+            "example": "eae82cf159577a8838cc83612104c09c5a0d6"
+          },
+          "CLOUDFLARE_ACCOUNT_ID": {
+            "title": "Cloudflare Account ID",
+            "description": "Your Cloudflare account identifier",
+            "type": "text",
+            "required": true,
+            "validation": "^[a-f0-9]{32}$",
+            "example": "2b2a1d3effa7f7fe4fe2a8c4e48681e3"
+          },
+          "CLOUDFLARE_WORKER_NAME": {
+            "title": "Cloudflare Worker Name",
+            "description": "Name of the webhook gateway worker",
+            "type": "text",
+            "required": false,
+            "default": "webhook-gateway",
+            "example": "webhook-gateway"
+          },
+          "CLOUDFLARE_WORKER_URL": {
+            "title": "Cloudflare Worker URL",
+            "description": "Full URL of the deployed webhook gateway worker",
+            "type": "url",
+            "required": true,
+            "validation": "^https://[a-zA-Z0-9.-]+\\.workers\\.dev/?$",
+            "example": "https://webhook-gateway.pixeliumperfecto.workers.dev"
+          }
+        }
+      },
+      "grainchain_integration": {
+        "title": "Grainchain Sandboxing",
+        "description": "Variables for grainchain snapshot and deployment validation",
+        "required": false,
+        "variables": {
+          "GRAINCHAIN_API_URL": {
+            "title": "Grainchain API URL",
+            "description": "URL of the grainchain sandboxing service",
+            "type": "url",
+            "required": false,
+            "default": "http://localhost:8001",
+            "example": "http://localhost:8001"
+          },
+          "GRAINCHAIN_ENABLED": {
+            "title": "Enable Grainchain",
+            "description": "Enable or disable grainchain snapshot validation",
+            "type": "boolean",
+            "required": false,
+            "default": "true",
+            "options": ["true", "false"]
+          }
+        }
+      },
+      "testing_configuration": {
+        "title": "Testing Configuration",
+        "description": "Variables for controlling test behavior and timeouts",
+        "required": false,
+        "variables": {
+          "HEADLESS": {
+            "title": "Headless Browser Mode",
+            "description": "Run browser tests in headless mode",
+            "type": "boolean",
+            "required": false,
+            "default": "true",
+            "options": ["true", "false"]
+          },
+          "TIMEOUT": {
+            "title": "Test Timeout (ms)",
+            "description": "Maximum timeout for individual test operations",
+            "type": "number",
+            "required": false,
+            "default": "30000",
+            "validation": "^[0-9]+$",
+            "example": "30000"
+          },
+          "SCREENSHOT_ON_FAILURE": {
+            "title": "Screenshot on Failure",
+            "description": "Take screenshots when tests fail",
+            "type": "boolean",
+            "required": false,
+            "default": "true",
+            "options": ["true", "false"]
+          },
+          "GENERATE_REPORT": {
+            "title": "Generate Test Report",
+            "description": "Generate detailed HTML test reports",
+            "type": "boolean",
+            "required": false,
+            "default": "true",
+            "options": ["true", "false"]
+          }
+        }
+      },
+      "deployment_urls": {
+        "title": "Deployment URLs",
+        "description": "URLs for different deployment environments",
+        "required": false,
+        "variables": {
+          "PLATFORM_URL": {
+            "title": "Platform URL",
+            "description": "URL of the main platform/dashboard",
+            "type": "url",
+            "required": false,
+            "default": "http://localhost:3001",
+            "example": "https://uioftheproject.com"
+          },
+          "API_URL": {
+            "title": "API Base URL",
+            "description": "Base URL for API endpoints",
+            "type": "url",
+            "required": false,
+            "default": "http://localhost:8000",
+            "example": "https://api.uioftheproject.com"
+          },
+          "STAGING_URL": {
+            "title": "Staging Environment URL",
+            "description": "URL for staging environment testing",
+            "type": "url",
+            "required": false,
+            "example": "https://staging.uioftheproject.com"
+          },
+          "PRODUCTION_URL": {
+            "title": "Production Environment URL",
+            "description": "URL for production environment",
+            "type": "url",
+            "required": false,
+            "example": "https://uioftheproject.com"
+          }
+        }
+      }
+    }
+  },
+  "ui_configuration": {
+    "settings_dialog_tabs": [
+      {
+        "id": "codegen_integration",
+        "title": "Codegen API",
+        "icon": "ApiIcon",
+        "description": "Configure Codegen API connection"
+      },
+      {
+        "id": "github_integration", 
+        "title": "GitHub",
+        "icon": "GitHubIcon",
+        "description": "Configure GitHub integration"
+      },
+      {
+        "id": "web_eval_agent",
+        "title": "Web Testing",
+        "icon": "BugReportIcon",
+        "description": "Configure web-eval-agent testing"
+      },
+      {
+        "id": "cloudflare_services",
+        "title": "Cloudflare",
+        "icon": "CloudIcon",
+        "description": "Configure Cloudflare services"
+      },
+      {
+        "id": "grainchain_integration",
+        "title": "Sandboxing",
+        "icon": "SecurityIcon",
+        "description": "Configure grainchain sandboxing"
+      },
+      {
+        "id": "testing_configuration",
+        "title": "Test Settings",
+        "icon": "SettingsIcon",
+        "description": "Configure testing behavior"
+      },
+      {
+        "id": "deployment_urls",
+        "title": "Deployment",
+        "icon": "LaunchIcon",
+        "description": "Configure deployment URLs"
+      }
+    ],
+    "validation_rules": {
+      "required_for_basic_functionality": [
+        "CODEGEN_ORG_ID",
+        "CODEGEN_API_TOKEN",
+        "GITHUB_TOKEN"
+      ],
+      "required_for_web_eval": [
+        "GEMINI_API_KEY",
+        "CLOUDFLARE_API_KEY",
+        "CLOUDFLARE_ACCOUNT_ID",
+        "CLOUDFLARE_WORKER_URL"
+      ],
+      "recommended_for_production": [
+        "PLATFORM_URL",
+        "API_URL",
+        "WEB_EVAL_AGENT_ENABLED",
+        "GRAINCHAIN_ENABLED"
+      ]
+    }
+  },
+  "test_instructions": {
+    "web_eval_command": "web-eval --url ${PLATFORM_URL} --instruction cicd_cycle_instructions.txt",
+    "environment_setup": [
+      "Set all required environment variables in the UI settings dialog",
+      "Verify API connections are working",
+      "Test basic functionality before running full CICD cycle",
+      "Ensure all services are running (backend, frontend, web-eval-agent)"
+    ],
+    "validation_steps": [
+      "Check environment variable validation",
+      "Test API endpoint connectivity", 
+      "Verify UI component loading",
+      "Run simple web evaluation test",
+      "Execute full CICD cycle test"
+    ]
+  }
+}
+

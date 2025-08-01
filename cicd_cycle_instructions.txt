@@ -1,0 +1,165 @@
+COMPLETE CICD CYCLE TEST INSTRUCTIONS FOR WEB-EVAL-AGENT
+
+OBJECTIVE: Test the complete CICD cycle from project setup to PR merge using the CodegenCICD Dashboard UI
+
+TARGET URL: https://uioftheproject.com (or http://localhost:3001 for local testing)
+
+TEST SCENARIO: Complete CICD Flow Validation
+
+STEP-BY-STEP INSTRUCTIONS:
+
+1. INITIAL PAGE LOAD & VERIFICATION
+   - Navigate to the dashboard URL
+   - Verify page loads successfully (status 200)
+   - Check for React root element (#root)
+   - Verify dashboard title "CodegenCICD Dashboard" is present
+   - Confirm Material-UI components are loaded
+   - Check for JavaScript and CSS bundles
+
+2. PROJECT SETUP PHASE
+   - Locate and click "Add Project" or "+" button
+   - Wait for project selection dialog to open
+   - Verify "Your Repositories" tab is active
+   - Check if GitHub repositories are loaded
+   - If no repos, switch to "Search GitHub" tab
+   - Search for a test repository (e.g., "CodegenCICD")
+   - Select a repository from the list
+   - Click "Add Project" button
+   - Verify project card appears on dashboard
+   - Check project status indicators (health, last run, etc.)
+
+3. ENVIRONMENT CONFIGURATION
+   - Click on project settings (gear icon or settings button)
+   - Open "Environment Variables" tab
+   - Add required environment variables:
+     * CODEGEN_ORG_ID: 323
+     * CODEGEN_API_TOKEN: [from environment]
+     * GITHUB_TOKEN: [from environment]
+     * GEMINI_API_KEY: [from environment]
+     * CLOUDFLARE_API_KEY: [from environment]
+     * CLOUDFLARE_ACCOUNT_ID: [from environment]
+     * CLOUDFLARE_WORKER_NAME: webhook-gateway
+     * CLOUDFLARE_WORKER_URL: https://webhook-gateway.pixeliumperfecto.workers.dev
+   - Save environment configuration
+   - Verify success notification appears
+
+4. AGENT RUN INITIATION
+   - Click "Run Agent" button on project card
+   - Wait for agent run dialog to open
+   - Enter target instruction: "Fix any TypeScript errors and improve code quality"
+   - Verify target input field accepts text
+   - Click "Start Agent Run" button
+   - Verify agent run starts (loading indicator appears)
+   - Check that agent run ID is generated
+   - Verify status updates to "Planning" or "Running"
+
+5. PLAN CONFIRMATION FLOW
+   - Wait for plan generation (may take 30-60 seconds)
+   - Verify plan appears in the dialog
+   - Check plan contains specific steps and file changes
+   - Review plan details (files to modify, approach, etc.)
+   - Click "Approve Plan" button
+   - Verify plan approval is processed
+   - Check status updates to "Executing"
+
+6. EXECUTION MONITORING
+   - Monitor agent run progress
+   - Verify status updates appear in real-time
+   - Check for progress indicators or logs
+   - Wait for completion (may take 2-5 minutes)
+   - Verify final status is "Completed" or "Success"
+
+7. GRAINCHAIN SNAPSHOT VALIDATION
+   - Verify snapshot creation is triggered
+   - Check for snapshot ID generation
+   - Monitor snapshot validation process
+   - Verify deployment commands are executed
+   - Check for validation results (pass/fail)
+   - Confirm snapshot status updates
+
+8. WEB-EVAL-AGENT TESTING PHASE
+   - Verify web-eval-agent tests are triggered
+   - Check for browser automation initiation
+   - Monitor UI testing progress
+   - Verify test results are captured
+   - Check for accessibility, performance, and functionality tests
+   - Confirm test report generation
+
+9. PR CREATION & VALIDATION
+   - Verify PR is created on GitHub
+   - Check PR title and description
+   - Verify PR contains expected file changes
+   - Check for automated PR validation
+   - Monitor CI/CD pipeline execution
+   - Verify all checks pass (tests, linting, security)
+
+10. AUTO-MERGE COMPLETION
+    - Verify auto-merge conditions are met
+    - Check for final validation results
+    - Confirm PR is automatically merged
+    - Verify merge notification appears
+    - Check project status updates to reflect completion
+
+11. FINAL VERIFICATION
+    - Verify dashboard shows completed run
+    - Check run history and statistics
+    - Confirm all metrics are updated
+    - Verify webhook notifications were sent
+    - Check for any error messages or warnings
+
+EXPECTED OUTCOMES:
+- ✅ Complete CICD cycle executes successfully
+- ✅ All UI components function correctly
+- ✅ Real-time updates work properly
+- ✅ Error handling is robust
+- ✅ User experience is smooth and intuitive
+- ✅ All integrations (GitHub, Cloudflare, Grainchain, Web-eval-agent) work
+- ✅ Performance is acceptable (<5s for most operations)
+- ✅ Accessibility standards are met
+- ✅ Mobile responsiveness works
+
+FAILURE CONDITIONS:
+- ❌ Any step fails to complete
+- ❌ UI becomes unresponsive
+- ❌ Error messages are unclear
+- ❌ Real-time updates stop working
+- ❌ Integration failures occur
+- ❌ Performance is unacceptable (>10s for operations)
+- ❌ Accessibility issues found
+- ❌ Mobile layout breaks
+
+ENVIRONMENT VARIABLES REQUIRED:
+- CODEGEN_ORG_ID=323
+- CODEGEN_API_TOKEN=[secure token]
+- GITHUB_TOKEN=[personal access token]
+- GEMINI_API_KEY=[for web-eval-agent]
+- CLOUDFLARE_API_KEY=[for webhooks]
+- CLOUDFLARE_ACCOUNT_ID=[cloudflare account]
+- CLOUDFLARE_WORKER_NAME=webhook-gateway
+- CLOUDFLARE_WORKER_URL=https://webhook-gateway.pixeliumperfecto.workers.dev
+
+SPECIAL INSTRUCTIONS FOR WEB-EVAL-AGENT:
+- Use headless browser mode for CI/CD
+- Take screenshots at each major step
+- Capture network requests and responses
+- Monitor JavaScript console for errors
+- Test keyboard navigation and accessibility
+- Verify responsive design on different screen sizes
+- Test with different browsers (Chrome, Firefox, Safari)
+- Measure performance metrics (load time, interaction time)
+- Generate comprehensive test report with metrics
+
+TIMEOUT SETTINGS:
+- Page load timeout: 30 seconds
+- Element wait timeout: 10 seconds
+- Agent run timeout: 10 minutes
+- Overall test timeout: 15 minutes
+
+SUCCESS CRITERIA:
+- All steps complete without errors
+- Performance metrics within acceptable ranges
+- Accessibility score >90%
+- No JavaScript console errors
+- All integrations functional
+- User experience smooth and intuitive
+
