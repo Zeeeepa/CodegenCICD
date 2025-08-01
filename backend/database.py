@@ -17,19 +17,31 @@ logger = structlog.get_logger(__name__)
 settings = get_settings()
 
 # Create async engine with comprehensive configuration
-engine = create_async_engine(
-    get_database_url(),
-    echo=settings.debug,
-    pool_pre_ping=True,
-    pool_recycle=300,
-    pool_size=20,
-    max_overflow=30,
-    poolclass=NullPool if "sqlite" in get_database_url() else None,
-    connect_args={
-        "server_settings": {"jit": "off"}
-    } if "postgresql" in get_database_url() else {},
-    future=True
-)
+database_url = get_database_url()
+engine_kwargs = {
+    "echo": settings.debug,
+    "future": True
+}
+
+# Configure based on database type
+if "sqlite" in database_url:
+    engine_kwargs.update({
+        "poolclass": NullPool,
+        "connect_args": {"check_same_thread": False}
+    })
+else:
+    # PostgreSQL configuration
+    engine_kwargs.update({
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+        "pool_size": 20,
+        "max_overflow": 30,
+        "connect_args": {
+            "server_settings": {"jit": "off"}
+        }
+    })
+
+engine = create_async_engine(database_url, **engine_kwargs)
 
 # Create async session maker
 AsyncSessionLocal = async_sessionmaker(
@@ -135,11 +147,16 @@ async def check_db_health() -> Dict[str, Any]:
             await session.execute(text("SELECT 1"))
             health_info["connection"] = True
             
-            # Count tables
-            result = await session.execute(text("""
-                SELECT COUNT(*) FROM information_schema.tables 
-                WHERE table_schema = 'public'
-            """))
+            # Count tables (different query for SQLite vs PostgreSQL)
+            if "sqlite" in get_database_url():
+                result = await session.execute(text("""
+                    SELECT COUNT(*) FROM sqlite_master WHERE type='table'
+                """))
+            else:
+                result = await session.execute(text("""
+                    SELECT COUNT(*) FROM information_schema.tables 
+                    WHERE table_schema = 'public'
+                """))
             health_info["tables"] = result.scalar()
             
             # Get pool status
@@ -203,20 +220,30 @@ class DatabaseManager:
     async def get_table_info() -> List[Dict[str, Any]]:
         """Get comprehensive information about database tables"""
         async with AsyncSessionLocal() as session:
-            result = await session.execute(text("""
-                SELECT 
-                    t.table_name,
-                    t.table_type,
-                    c.column_name,
-                    c.data_type,
-                    c.is_nullable,
-                    c.column_default
-                FROM information_schema.tables t
-                LEFT JOIN information_schema.columns c ON t.table_name = c.table_name
-                WHERE t.table_schema = 'public'
-                ORDER BY t.table_name, c.ordinal_position
-            """))
-            return [dict(row) for row in result.fetchall()]
+            if "sqlite" in get_database_url():
+                # SQLite query
+                result = await session.execute(text("""
+                    SELECT name as table_name, 'table' as table_type
+                    FROM sqlite_master 
+                    WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                    ORDER BY name
+                """))
+            else:
+                # PostgreSQL query
+                result = await session.execute(text("""
+                    SELECT 
+                        t.table_name,
+                        t.table_type,
+                        c.column_name,
+                        c.data_type,
+                        c.is_nullable,
+                        c.column_default
+                    FROM information_schema.tables t
+                    LEFT JOIN information_schema.columns c ON t.table_name = c.table_name
+                    WHERE t.table_schema = 'public'
+                    ORDER BY t.table_name, c.ordinal_position
+                """))
+            return [dict(row._mapping) for row in result.fetchall()]
     
     @staticmethod
     async def get_database_stats() -> Dict[str, Any]:

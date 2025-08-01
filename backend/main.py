@@ -20,6 +20,7 @@ from routers.service_validation import router as service_validation_router
 from routers.projects import router as projects_router
 from routers.health import router as health_router
 from routers.webhooks import router as webhooks_router
+from routers.monitoring import router as monitoring_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -33,6 +34,7 @@ app.include_router(service_validation_router)
 app.include_router(projects_router)
 app.include_router(health_router)
 app.include_router(webhooks_router)
+app.include_router(monitoring_router)
 
 # Add CORS middleware
 app.add_middleware(
