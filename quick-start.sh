@@ -380,7 +380,7 @@ main() {
             
             # Test Codegen API integration
             print_status "Testing Codegen API integration..."
-            if python3 test_codegen_api.py; then
+            if python3 tests/test_codegen_api.py; then
                 print_success "✅ Codegen API integration validated"
             else
                 print_warning "⚠️  Codegen API test failed - check your API credentials"

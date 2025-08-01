@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 # Add backend to path
-sys.path.append(str(Path(__file__).parent / "backend"))
+sys.path.append(str(Path(__file__).parent.parent / "backend"))
 
 from backend.integrations.codegen_client import CodegenClient
 from backend.config import get_settings
