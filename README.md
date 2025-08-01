@@ -4,6 +4,49 @@
 
 A comprehensive AI-powered CI/CD dashboard that integrates multiple services for automated code generation, validation, and deployment workflows.
 
+## 🚀 Quick Start
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/Zeeeepa/CodegenCICD.git
+cd CodegenCICD
+
+# Install the package in development mode
+pip install -e .
+
+# Start the dashboard (backend + frontend)
+codegen
+```
+
+The `codegen` command will:
+- ✅ **Start both backend and frontend services**
+- ✅ **Check for required environment variables**
+- ✅ **Provide setup instructions if variables are missing**
+- ✅ **Open the dashboard in your browser**
+
+### First Run Setup
+
+If environment variables are missing, the `codegen` command will guide you through setup:
+
+```bash
+$ codegen
+⚠️  Missing required environment variables. Please add to .env file:
+
+# Required for core functionality
+CODEGEN_ORG_ID=your-org-id
+CODEGEN_API_TOKEN=your-api-token
+GITHUB_TOKEN=your-github-token
+
+# Optional for advanced features
+GEMINI_API_KEY=your-gemini-api-key
+CLOUDFLARE_API_KEY=your-cloudflare-api-key
+CLOUDFLARE_ACCOUNT_ID=your-account-id
+
+Create .env file with these variables and run 'codegen' again.
+```
+
 ## ✅ Implementation Status
 
 **🎉 FULLY IMPLEMENTED AND TESTED** - All core components are working and verified:
@@ -15,9 +58,9 @@ A comprehensive AI-powered CI/CD dashboard that integrates multiple services for
 - ✅ **Integration Tests**: All 10/10 tests passing
 - ✅ **Docker Support**: Multi-stage containerization ready
 - ✅ **CI/CD Pipeline**: GitHub Actions workflow configured
-- ✅ **Documentation**: Complete setup and deployment guides
+- ✅ **CLI Tool**: One-command startup and management
 
-**Last Verified**: July 31, 2025 - All systems operational ✨
+**Last Verified**: August 1, 2025 - All systems operational ✨
 
 ## 🚀 Overview
 

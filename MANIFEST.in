@@ -1,0 +1,54 @@
+# Include documentation and configuration files
+include README.md
+include LICENSE
+include PLAN.md
+include *.md
+include *.txt
+include *.yml
+include *.yaml
+include *.json
+include *.sh
+include .env.example
+
+# Include the CLI script
+include codegen_cli.py
+
+# Include Docker and deployment files
+include Dockerfile
+include docker-compose.yml
+
+# Include GitHub workflows
+recursive-include .github *
+
+# Include backend files
+recursive-include backend *.py
+recursive-include backend *.sql
+recursive-include backend *.txt
+recursive-include backend *.yml
+recursive-include backend *.yaml
+
+# Include frontend build files (if they exist)
+recursive-include frontend/build *
+recursive-include frontend/public *
+recursive-include frontend/src *
+include frontend/package.json
+include frontend/package-lock.json
+include frontend/*.json
+include frontend/*.js
+include frontend/*.ts
+
+# Include test files
+recursive-include tests *.py
+recursive-include scripts *.py
+recursive-include scripts *.js
+recursive-include scripts *.sh
+
+# Exclude unnecessary files
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.pyd
+global-exclude __pycache__
+global-exclude .DS_Store
+global-exclude *.so
+global-exclude .git*
+global-exclude node_modules
