@@ -27,7 +27,6 @@ import {
 import {
   ExpandMore as ExpandMoreIcon,
   PlayArrow as PlayArrowIcon,
-  Stop as StopIcon,
   Refresh as RefreshIcon,
   LocalHospital as HealthIcon,
   Code as CodeIcon,
@@ -43,7 +42,6 @@ import {
   useAgentRuns,
   useAgentRunLogs,
   useBulkOperations,
-  useStreamingAgentRuns,
   useWebhooks,
   useHealthCheck
 } from '../hooks/useCodegenClient';
@@ -57,7 +55,7 @@ const CodegenExample: React.FC = () => {
   const [selectedAgentRunId, setSelectedAgentRunId] = useState<number | null>(null);
 
   // Initialize client with development config
-  const { client, isConnected, isConnecting, error: clientError, stats, connect, refreshStats } = useCodegenClient({
+  const { isConnected, isConnecting, error: clientError, stats, connect, refreshStats } = useCodegenClient({
     config: ConfigPresets.development,
     autoConnect: true
   });
@@ -67,10 +65,10 @@ const CodegenExample: React.FC = () => {
   const { organizations, loading: orgsLoading, error: orgsError } = useOrganizations();
 
   // Agent run operations
-  const { createAgentRun, resumeAgentRun, loading: createLoading, error: createError } = useCreateAgentRun();
+  const { createAgentRun, loading: createLoading, error: createError } = useCreateAgentRun();
 
   // Health monitoring
-  const { health, loading: healthLoading, checkHealth } = useHealthCheck(30000);
+  const { health } = useHealthCheck(30000);
 
   // Webhooks
   const { events: webhookEvents, registerHandler, clearEvents } = useWebhooks();
@@ -121,20 +119,7 @@ const CodegenExample: React.FC = () => {
     await bulkCreateAgentRuns(selectedOrgId, configs);
   };
 
-  const getStatusColor = (status?: string) => {
-    switch (status) {
-      case AgentRunStatus.COMPLETED:
-        return 'success';
-      case AgentRunStatus.FAILED:
-        return 'error';
-      case AgentRunStatus.RUNNING:
-        return 'primary';
-      case AgentRunStatus.PENDING:
-        return 'warning';
-      default:
-        return 'default';
-    }
-  };
+
 
   return (
     <Box sx={{ p: 3, maxWidth: 1200, mx: 'auto' }}>
