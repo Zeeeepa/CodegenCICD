@@ -7,126 +7,109 @@ import {
   AppBar,
   Toolbar,
   Typography,
-  Button,
   IconButton,
   Box,
+  Button,
   Switch,
-  FormControlLabel,
-  Chip,
-  Tooltip
+  FormControlLabel
 } from '@mui/material';
 import {
-  Add as AddIcon,
-  Refresh as RefreshIcon,
   Settings as SettingsIcon,
-  GitHub as GitHubIcon,
-  Dashboard as DashboardIcon
+  Notifications as NotificationsIcon,
+  Add as AddIcon,
+  Refresh as RefreshIcon
 } from '@mui/icons-material';
 
-// ============================================================================
-// INTERFACE
-// ============================================================================
-
 interface DashboardHeaderProps {
-  onAddProject: () => void;
-  onRefreshAll: () => void;
-  onOpenSettings: () => void;
-  autoRefreshEnabled: boolean;
-  onToggleAutoRefresh: (enabled: boolean) => void;
+  onSettingsClick?: () => void;
+  onNotificationsClick?: () => void;
+  onAddProject?: () => void;
+  onRefreshAll?: () => Promise<void>;
+  onOpenSettings?: () => void;
+  autoRefreshEnabled?: boolean;
+  onToggleAutoRefresh?: (enabled: boolean) => void;
+  title?: string;
 }
 
-// ============================================================================
-// COMPONENT
-// ============================================================================
-
 export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
+  onSettingsClick,
+  onNotificationsClick,
   onAddProject,
   onRefreshAll,
   onOpenSettings,
-  autoRefreshEnabled,
-  onToggleAutoRefresh
+  autoRefreshEnabled = false,
+  onToggleAutoRefresh,
+  title = "CodegenCICD Dashboard"
 }) => {
+  const handleRefresh = async () => {
+    if (onRefreshAll) {
+      await onRefreshAll();
+    }
+  };
+
   return (
     <AppBar position="static" elevation={1}>
       <Toolbar>
-        {/* Logo and Title */}
-        <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
-          <DashboardIcon sx={{ mr: 2, fontSize: 32 }} />
-          <Box>
-            <Typography variant="h5" component="div" sx={{ fontWeight: 'bold' }}>
-              CICD Dashboard
-            </Typography>
-            <Typography variant="caption" sx={{ opacity: 0.8 }}>
-              Automated Development Workflow Management
-            </Typography>
-          </Box>
-        </Box>
-
-        {/* Status Indicators */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mr: 3 }}>
-          <Chip
-            icon={<GitHubIcon />}
-            label="GitHub Connected"
-            color="success"
-            variant="outlined"
-            size="small"
-          />
+        <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+          {title}
+        </Typography>
+        
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {onToggleAutoRefresh && (
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={autoRefreshEnabled}
+                  onChange={(e) => onToggleAutoRefresh(e.target.checked)}
+                  color="default"
+                />
+              }
+              label="Auto Refresh"
+              sx={{ color: 'inherit', mr: 1 }}
+            />
+          )}
           
-          <FormControlLabel
-            control={
-              <Switch
-                checked={autoRefreshEnabled}
-                onChange={(e) => onToggleAutoRefresh(e.target.checked)}
-                size="small"
-                color="secondary"
-              />
-            }
-            label={
-              <Typography variant="caption">
-                Auto-refresh
-              </Typography>
-            }
-            sx={{ m: 0 }}
-          />
-        </Box>
-
-        {/* Action Buttons */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Tooltip title="Refresh all projects">
+          {onAddProject && (
+            <Button
+              color="inherit"
+              startIcon={<AddIcon />}
+              onClick={onAddProject}
+              variant="outlined"
+              sx={{ borderColor: 'rgba(255, 255, 255, 0.5)' }}
+            >
+              Add Project
+            </Button>
+          )}
+          
+          {onRefreshAll && (
             <IconButton
               color="inherit"
-              onClick={onRefreshAll}
-              sx={{ mr: 1 }}
+              onClick={handleRefresh}
+              aria-label="refresh all"
             >
               <RefreshIcon />
             </IconButton>
-          </Tooltip>
-
-          <Button
-            color="inherit"
-            startIcon={<AddIcon />}
-            onClick={onAddProject}
-            variant="outlined"
-            sx={{ 
-              mr: 1,
-              borderColor: 'rgba(255, 255, 255, 0.3)',
-              '&:hover': {
-                borderColor: 'rgba(255, 255, 255, 0.5)',
-                bgcolor: 'rgba(255, 255, 255, 0.1)'
-              }
-            }}
-          >
-            Add Project
-          </Button>
-
-          <Tooltip title="Global settings">
+          )}
+          
+          {onNotificationsClick && (
             <IconButton
               color="inherit"
-              onClick={onOpenSettings}
+              onClick={onNotificationsClick}
+              aria-label="notifications"
+            >
+              <NotificationsIcon />
+            </IconButton>
+          )}
+          
+          {(onSettingsClick || onOpenSettings) && (
+            <IconButton
+              color="inherit"
+              onClick={onSettingsClick || onOpenSettings}
+              aria-label="settings"
             >
               <SettingsIcon />
             </IconButton>
-          </Tooltip>
+          )}
         </Box>
       </Toolbar>
     </AppBar>

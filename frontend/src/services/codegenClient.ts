@@ -70,8 +70,8 @@ export class CodegenClient {
 
     // Initialize components
     this.rateLimiter = new RateLimiter(
-      this.config.rate_limit_requests_per_period,
-      this.config.rate_limit_period_seconds
+      this.config.rate_limit_requests_per_period || 100,
+      this.config.rate_limit_period_seconds || 60
     );
 
     if (this.config.enable_caching) {
@@ -89,7 +89,7 @@ export class CodegenClient {
       this.metrics = new MetricsCollector();
     }
 
-    console.info(`Initialized CodegenClient with base URL: ${this.config.base_url}`);
+    console.info(`Initialized CodegenClient with base URL: ${this.config.baseUrl}`);
   }
 
   // ========================================================================
@@ -101,17 +101,17 @@ export class CodegenClient {
 
     if (statusCode === 429) {
       const retryAfter = parseInt(response.headers.get('Retry-After') || '60');
-      throw new RateLimitError(retryAfter, requestId);
+      throw new RateLimitError('Rate limit exceeded', retryAfter);
     }
 
     if (statusCode === 401) {
-      throw new AuthenticationError('Invalid API token or insufficient permissions', requestId);
+      throw new AuthenticationError('Invalid API token or insufficient permissions');
     } else if (statusCode === 404) {
-      throw new NotFoundError('Requested resource not found', requestId);
+      throw new NotFoundError('Requested resource not found');
     } else if (statusCode === 409) {
-      throw new ConflictError('Resource conflict occurred', requestId);
+      throw new ConflictError('Resource conflict occurred');
     } else if (statusCode >= 500) {
-      throw new ServerError(`Server error: ${statusCode}`, statusCode, requestId);
+      throw new ServerError(`Server error: ${statusCode}`);
     } else if (!response.ok) {
       let message = `API request failed: ${statusCode}`;
       let errorData: any = null;
@@ -123,7 +123,7 @@ export class CodegenClient {
         // Ignore JSON parsing errors
       }
       
-      throw new CodegenAPIError(message, statusCode, errorData, requestId);
+      throw new CodegenAPIError(message, statusCode, errorData);
     }
 
     return response.json();
@@ -160,7 +160,7 @@ export class CodegenClient {
     }
 
     // Build URL with query parameters
-    let url = `${this.config.base_url}${endpoint}`;
+    let url = `${this.config.baseUrl}${endpoint}`;
     if (options.params) {
       const searchParams = new URLSearchParams();
       Object.entries(options.params).forEach(([key, value]) => {
@@ -173,11 +173,11 @@ export class CodegenClient {
     const fetchOptions: RequestInit = {
       method,
       headers: {
-        'Authorization': `Bearer ${this.config.api_token}`,
-        'User-Agent': this.config.user_agent,
+        'Authorization': `Bearer ${this.config.apiKey}`,
+        'User-Agent': this.config.user_agent || 'CodegenClient/1.0',
         'Content-Type': 'application/json'
       },
-      signal: AbortSignal.timeout(this.config.timeout)
+      signal: AbortSignal.timeout(this.config.timeout || 30000)
     };
 
     if (options.body) {
@@ -231,14 +231,14 @@ export class CodegenClient {
           if (this.metrics) {
             this.metrics.recordRequest(method, endpoint, duration, 408, requestId);
           }
-          throw new TimeoutError(`Request timed out after ${this.config.timeout}ms`, requestId);
+          throw new TimeoutError(`Request timed out after ${this.config.timeout || 30000}ms`);
         }
 
         if (error instanceof TypeError && error.message.includes('fetch')) {
           if (this.metrics) {
             this.metrics.recordRequest(method, endpoint, duration, 0, requestId);
           }
-          throw new NetworkError(`Network error: ${error.message}`, requestId);
+          throw new NetworkError(`Network error: ${error.message}`);
         }
 
         // Re-throw known errors
@@ -298,6 +298,9 @@ export class CodegenClient {
     return {
       id: response.id || 0,
       email: response.email,
+      name: response.name,
+      created_at: response.created_at || new Date().toISOString(),
+      updated_at: response.updated_at || new Date().toISOString(),
       github_user_id: response.github_user_id || '',
       github_username: response.github_username || '',
       avatar_url: response.avatar_url,
@@ -311,6 +314,9 @@ export class CodegenClient {
     return {
       id: response.id || 0,
       email: response.email,
+      name: response.name,
+      created_at: response.created_at || new Date().toISOString(),
+      updated_at: response.updated_at || new Date().toISOString(),
       github_user_id: response.github_user_id || '',
       github_username: response.github_username || '',
       avatar_url: response.avatar_url,
@@ -554,7 +560,7 @@ export class CodegenClient {
   getStats(): Record<string, any> {
     const stats: Record<string, any> = {
       config: {
-        base_url: this.config.base_url,
+        base_url: this.config.baseUrl,
         timeout: this.config.timeout,
         max_retries: this.config.max_retries,
         rate_limit_requests_per_period: this.config.rate_limit_requests_per_period,
@@ -614,7 +620,7 @@ export class CodegenClient {
     this.webhookManager.registerHandler(eventType, handler);
   }
 
-  registerWebhookMiddleware(middleware: (payload: Record<string, any>) => Record<string, any>): void {
+  registerWebhookMiddleware(middleware: WebhookMiddleware): void {
     if (!this.webhookManager) {
       throw new Error('Webhooks are disabled. Enable them in configuration.');
     }
@@ -730,7 +736,7 @@ export class CodegenClient {
     }> = [];
 
     let completed = 0;
-    const maxConcurrent = this.config.bulk_max_workers;
+    const maxConcurrent = this.config.bulk_max_workers || 5;
     
     // Process items in batches
     for (let i = 0; i < items.length; i += maxConcurrent) {
@@ -757,7 +763,11 @@ export class CodegenClient {
       completed += batch.length;
 
       if (progressCallback) {
-        progressCallback(completed, items.length);
+        progressCallback({
+          completed,
+          total: items.length,
+          percentage: Math.round((completed / items.length) * 100)
+        });
       }
     }
 
@@ -766,12 +776,10 @@ export class CodegenClient {
     const successRate = items.length > 0 ? successfulItems / items.length : 0;
 
     return {
-      total_items: items.length,
-      successful_items: successfulItems,
-      failed_items: errors.length,
-      success_rate: successRate,
-      duration_seconds: duration,
-      errors,
+      total: items.length,
+      success: successfulItems,
+      failed: errors.length,
+      errors: errors.map(e => `Item ${e.index}: ${e.error}`),
       results: results.filter(r => r !== undefined)
     };
   }
@@ -785,6 +793,15 @@ export default CodegenClient;
 
 // Re-export everything for convenience
 export * from './codegenTypes';
-export * from './codegenErrors';
+export { 
+  CodegenAPIError as CodegenAPIErrorClass,
+  RateLimitError,
+  AuthenticationError,
+  NotFoundError,
+  ConflictError,
+  ServerError,
+  TimeoutError,
+  NetworkError
+} from './codegenErrors';
 export * from './codegenUtils';
 export * from './codegenConfig';

@@ -48,7 +48,7 @@ const CICDDashboard: React.FC = () => {
     clearError 
   } = useProjectActions();
 
-  const activeWorkflows = useWorkflowStore(state => 
+  const activeWorkflows = useWorkflowStore((state: any) => 
     Object.values(state.activeWorkflows)
   );
 
@@ -182,7 +182,7 @@ const CICDDashboard: React.FC = () => {
       );
     }
 
-    return activeProjects.map((project) => (
+    return activeProjects.map((project: any) => (
       <Grid item xs={12} md={6} lg={4} key={project.id}>
         <ProjectCard 
           project={project}
@@ -230,9 +230,9 @@ const CICDDashboard: React.FC = () => {
   const renderStats = () => {
     const totalProjects = activeProjects.length;
     const runningWorkflows = activeWorkflows.length;
-    const totalRuns = activeProjects.reduce((sum, project) => sum + project.stats.totalRuns, 0);
+    const totalRuns = activeProjects.reduce((sum: number, project: any) => sum + project.stats.totalRuns, 0);
     const successRate = activeProjects.length > 0 
-      ? Math.round(activeProjects.reduce((sum, project) => sum + project.stats.successRate, 0) / activeProjects.length)
+      ? Math.round(activeProjects.reduce((sum: number, project: any) => sum + project.stats.successRate, 0) / activeProjects.length)
       : 0;
 
     return (

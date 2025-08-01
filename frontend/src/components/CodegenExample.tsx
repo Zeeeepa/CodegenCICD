@@ -29,7 +29,7 @@ import {
   PlayArrow as PlayArrowIcon,
   Stop as StopIcon,
   Refresh as RefreshIcon,
-  Health as HealthIcon,
+  LocalHospital as HealthIcon,
   Code as CodeIcon,
   Timeline as TimelineIcon
 } from '@mui/icons-material';
@@ -58,7 +58,7 @@ const CodegenExample: React.FC = () => {
 
   // Initialize client with development config
   const { client, isConnected, isConnecting, error: clientError, stats, connect, refreshStats } = useCodegenClient({
-    config: ConfigPresets.development(),
+    config: ConfigPresets.development,
     autoConnect: true
   });
 
@@ -179,7 +179,7 @@ const CodegenExample: React.FC = () => {
 
               {clientError && (
                 <Alert severity="error" sx={{ mt: 1 }}>
-                  {clientError.message}
+                  {clientError}
                 </Alert>
               )}
             </CardContent>
@@ -212,7 +212,7 @@ const CodegenExample: React.FC = () => {
 
               {userError && (
                 <Alert severity="error" sx={{ mt: 1 }}>
-                  {userError.message}
+                  {userError}
                 </Alert>
               )}
             </CardContent>
@@ -247,7 +247,7 @@ const CodegenExample: React.FC = () => {
 
               {orgsError && (
                 <Alert severity="error" sx={{ mt: 1 }}>
-                  {orgsError.message}
+                  {orgsError}
                 </Alert>
               )}
             </CardContent>
@@ -308,13 +308,13 @@ const CodegenExample: React.FC = () => {
 
               {createError && (
                 <Alert severity="error">
-                  {createError.message}
+                  {createError}
                 </Alert>
               )}
 
               {bulkError && (
                 <Alert severity="error">
-                  {bulkError.message}
+                  {bulkError}
                 </Alert>
               )}
             </CardContent>
@@ -443,7 +443,7 @@ const AgentRunsList: React.FC<{ orgId: number; onSelectRun: (id: number) => void
         
         {error && (
           <Alert severity="error">
-            {error.message}
+            {error}
           </Alert>
         )}
 
@@ -526,7 +526,7 @@ const AgentRunDetails: React.FC<{ orgId: number; agentRunId: number }> = ({ orgI
         
         {error && (
           <Alert severity="error">
-            {error.message}
+            {error}
           </Alert>
         )}
 
@@ -604,7 +604,7 @@ const AgentRunDetails: React.FC<{ orgId: number; agentRunId: number }> = ({ orgI
                 </AccordionSummary>
                 <AccordionDetails>
                   {logsLoading && <CircularProgress size={24} />}
-                  {logsError && <Alert severity="error">{logsError.message}</Alert>}
+                  {logsError && <Alert severity="error">{logsError}</Alert>}
                   
                   <List sx={{ maxHeight: 400, overflow: 'auto' }}>
                     {logs.logs.map((log, index) => (
