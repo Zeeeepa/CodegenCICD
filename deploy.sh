@@ -131,20 +131,41 @@ print_info "All system dependencies satisfied!"
 print_info "Setting up Python virtual environment..."
 cd backend
 
-if [[ ! -d "venv" ]]; then
+# Check if virtual environment exists and is valid
+if [[ -d "venv" ]]; then
+    # Check if activation script exists
+    if [[ "$OS" == "windows" && -f "venv/Scripts/activate" ]] || [[ "$OS" != "windows" && -f "venv/bin/activate" ]]; then
+        print_status "Virtual environment already exists and is valid"
+    else
+        print_warning "Virtual environment exists but is corrupted, recreating..."
+        rm -rf venv
+        $PYTHON_CMD -m venv venv
+        print_status "Virtual environment recreated"
+    fi
+else
     print_info "Creating virtual environment..."
     $PYTHON_CMD -m venv venv
     print_status "Virtual environment created"
-else
-    print_status "Virtual environment already exists"
 fi
 
 # Activate virtual environment
 print_info "Activating virtual environment..."
 if [[ "$OS" == "windows" ]]; then
-    source venv/Scripts/activate
+    if [[ -f "venv/Scripts/activate" ]]; then
+        source venv/Scripts/activate
+        print_status "Virtual environment activated"
+    else
+        print_error "Failed to find activation script at venv/Scripts/activate"
+        exit 1
+    fi
 else
-    source venv/bin/activate
+    if [[ -f "venv/bin/activate" ]]; then
+        source venv/bin/activate
+        print_status "Virtual environment activated"
+    else
+        print_error "Failed to find activation script at venv/bin/activate"
+        exit 1
+    fi
 fi
 
 # Upgrade pip

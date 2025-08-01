@@ -203,9 +203,21 @@ start_backend() {
     
     # Activate virtual environment
     if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
-        source venv/Scripts/activate
+        if [[ -f "venv/Scripts/activate" ]]; then
+            source venv/Scripts/activate
+        else
+            print_error "Virtual environment activation script not found at venv/Scripts/activate"
+            print_error "Please run ./deploy.sh to set up the environment properly"
+            exit 1
+        fi
     else
-        source venv/bin/activate
+        if [[ -f "venv/bin/activate" ]]; then
+            source venv/bin/activate
+        else
+            print_error "Virtual environment activation script not found at venv/bin/activate"
+            print_error "Please run ./deploy.sh to set up the environment properly"
+            exit 1
+        fi
     fi
     
     # Start backend server in background
@@ -331,4 +343,3 @@ else
     cleanup
     exit 1
 fi
-
