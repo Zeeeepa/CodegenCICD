@@ -101,8 +101,34 @@ setup_backend() {
     
     cd backend
     
-    # Create virtual environment if it doesn't exist
-    if [ ! -d "venv" ]; then
+    # Check if virtual environment exists and is valid
+    if [ -d "venv" ]; then
+        # Check if activation script exists
+        if [ -f "venv/bin/activate" ]; then
+            print_status "Virtual environment already exists and is valid"
+        else
+            print_warning "Virtual environment exists but is corrupted, recreating..."
+            rm -rf venv
+            print_status "Creating Python virtual environment..."
+            python3 -m venv venv
+            if [ $? -ne 0 ]; then
+                print_error "Failed to create virtual environment. Please install python3-venv:"
+                print_error "sudo apt install python3-venv"
+                exit 1
+            fi
+            
+            # Wait a moment for filesystem to sync
+            sleep 1
+            
+            # Verify the virtual environment was created successfully
+            if [ ! -f "venv/bin/activate" ]; then
+                print_error "Virtual environment was created but activation script is missing!"
+                print_error "This might be a filesystem sync issue. Please try running the script again."
+                exit 1
+            fi
+            print_status "Virtual environment recreated successfully"
+        fi
+    else
         print_status "Creating Python virtual environment..."
         python3 -m venv venv
         if [ $? -ne 0 ]; then
@@ -120,6 +146,7 @@ setup_backend() {
             print_error "This might be a filesystem sync issue. Please try running the script again."
             exit 1
         fi
+        print_status "Virtual environment created successfully"
     fi
     
     # Activate virtual environment
