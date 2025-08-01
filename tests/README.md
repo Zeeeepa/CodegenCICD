@@ -4,7 +4,9 @@ This directory contains all test files for the CodegenCICD system.
 
 ## Test Files
 
-### `simple_web_eval.py`
+### Web Evaluation Tests
+
+#### `simple_web_eval.py`
 Lightweight web evaluation script that tests the system using HTTP requests.
 
 **Features:**
@@ -19,7 +21,7 @@ Lightweight web evaluation script that tests the system using HTTP requests.
 python tests/simple_web_eval.py
 ```
 
-### `web_eval_test.py`
+#### `web_eval_test.py`
 Full browser automation testing using Playwright for comprehensive UI testing.
 
 **Features:**
@@ -39,6 +41,33 @@ python tests/web_eval_test.py
 pip install playwright beautifulsoup4
 playwright install
 ```
+
+### API & Integration Tests
+
+#### `test_codegen_api.py`
+Tests for the Codegen API integration and functionality.
+
+#### `test_integration.py`
+Integration tests for the complete system workflow.
+
+#### `run_comprehensive_tests.py`
+Comprehensive test runner that executes multiple test suites.
+
+### JavaScript Tests
+
+#### `full-cicd-cycle-test.js`
+Full CI/CD cycle testing using JavaScript/Node.js.
+
+#### `validation-test.js`
+Validation tests for the system components.
+
+### Legacy Tests
+
+#### `test_web_eval_agent.py`
+Legacy web evaluation agent tests.
+
+#### `test_web_eval_deployment.py`
+Legacy deployment testing scripts.
 
 ## Running Tests
 
